@@ -338,6 +338,36 @@ def truthfulqa_gen_mt_prompt_el(line, task_name: str = None, use_mt_columns=True
     )
 
 TRUTHFULQA_TASKS = TRUTHFULQA_TASKS + [thruthfulqa_mc_el_mt_task, thruthfulqa_gen_el_mt_task]
+
+greek_civics_qa_task = LightevalTaskConfig(
+    name="greek_civics_qa",
+    prompt_function="greek_civics_qa_prompt",
+    suite=["community"],
+    hf_repo="ilsp/greek_civics_qa",
+    hf_avail_splits=["default"],
+    evaluation_splits=["default"],
+    few_shots_split=None,
+    few_shots_select=None,
+    # generation_size=6000,
+    metric=["bleu","rouge_t5"],
+    stop_sequence=["\n"],
+    output_regex=None,
+    frozen=False,
+    trust_dataset=True,
+)
+
+def greek_civics_qa_prompt(line, task_name: str = None):
+    query = "Απάντησε στην παρακάτω ερώτηση που σχετίζεται με το μάθημα της κοινωνικής και πολιτικής αγωγής.\n\n"
+    query += f"Ερώτηση:\n{line['question'].strip()}\n\n"
+    query += "Απάντηση:\n"
+    return Doc(
+        task_name=task_name,
+        query=query,
+        choices=[line["answer"].strip()],
+        gold_index=0
+    )
+
+
 #######################################################
 
 
@@ -569,7 +599,9 @@ _TASKS = (
     FLORES200_TASKS +
     [hellaswag_el_task] +
     [xnli_el_task] +
+    [greek_civics_qa_task] +
     [medical_mc_qa_el_task]
+
 )
 
 TASKS_TABLE = [task.as_dict() for task in _TASKS]
