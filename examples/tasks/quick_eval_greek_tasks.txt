@@ -1,0 +1,9 @@
+# ARC EL
+community|arc_el:challenge|25|0
+community|arc_el:easy|25|0
+# Hellaswag EL
+community|hellaswag_el|10|0
+# TruthfulQA EL
+community|truthfulqa_el:mc|0|0
+# MedicalMCQA EL
+community|medicalmcqa|15|0
