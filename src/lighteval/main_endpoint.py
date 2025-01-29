@@ -60,7 +60,7 @@ def openai(
         bool,
         Option(
             help="Use chat template for LiteLLM evaluation. Cannot use with GPT API.",
-            rich_help_panel=HELP_PANNEL_NAME_4,
+            rich_help_panel=HELP_PANEL_NAME_4,
         ),
     ] = False,
     # === Common parameters ===
