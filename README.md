@@ -56,12 +56,12 @@ Hub, S3, or locally.
 
 To pip install the current repo (Greek extension), you can either:
 
-`pip install lighteval[accelerate,extended_tasks]@git+https://github.com/LeonVouk/lighteval.git`
+`pip install lighteval[accelerate,extended_tasks,litellm]@git+https://github.com/LeonVouk/lighteval.git`
 
 or, for active development, clone the repository and install it locally:
 
 ```bash
-pip install -e ".[accelerate,extended_tasks]"
+pip install -e ".[accelerate,extended_tasks,litellm]"
 ```
 
 Lighteval allows for many extras when installing, see [here](https://huggingface.co/docs/lighteval/installation) for a complete list.
