@@ -1,0 +1,8 @@
+community|ifeval_el|0|0
+extended|ifeval|0|0
+# community|mmlu_pro_el|5|0
+# community|mmlu_pro_cot_el|5|0
+# community|mt_bench_el:default|0|0
+# extended|mt_bench|0|0
+
+# maybe add mmlu_pro for english too
