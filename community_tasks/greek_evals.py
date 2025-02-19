@@ -652,7 +652,34 @@ BELEBELE_TASKS = [
 
 # FLORES
 
-FLORES200_DIRECTIONS = ["en->el", "el->en"]
+FLORES200_DIRECTIONS = [
+    "en->el", "el->en",
+    "fr->el", "el->fr",
+    "pt->el", "el->pt",
+    "de->el", "el->de",
+    "es->el", "el->es",
+    "it->el", "el->it"
+]
+
+LANG_NAMES = {
+    "en": "Αγγλικά",
+    "fr": "Γαλλικά",
+    "pt": "Πορτογαλικά",
+    "de": "Γερμανικά",
+    "es": "Ισπανικά",
+    "it": "Ιταλικά",
+    "el": "Ελληνικά"
+}
+
+LANG_COLS = {
+    "en": "eng_Latn",
+    "fr": "fra_Latn",
+    "pt": "por_Latn",
+    "de": "deu_Latn",
+    "es": "spa_Latn",
+    "it": "ita_Latn",
+    "el": "ell_Grek"
+}
 
 
 class Flores200Task(LightevalTaskConfig):
@@ -661,7 +688,7 @@ class Flores200Task(LightevalTaskConfig):
             name=name,
             suite=["community"],
             prompt_function=prompt_fn,
-            hf_repo="ilsp/flores200_en-el",
+            hf_repo="ilsp/flores200_el-x",
             hf_subset="default",
             hf_avail_splits=["validation", "test"],
             evaluation_splits=["test"],
@@ -675,36 +702,26 @@ class Flores200Task(LightevalTaskConfig):
         )
 
 
-def flores200_en_to_el_prompt(line, task_name: str = None):
-    query = "Μετάφρασε το κείμενο απο τα Αγγλικά στα Ελληνικά.\n\n"
-    query += f"Αγγλικα:\n{line['en']}\n\n"
-    query += "Ελληνικά:\n"
-    return Doc(
-        task_name=task_name,
-        query=query,
-        instruction="Μετάφρασε το κείμενο απο τα Αγγλικά στα Ελληνικά.\n\n",
-        choices=[line["el"]],
-        gold_index=0,
-    )
-
-
-def flores200_el_to_en_prompt(line, task_name: str = None):
-    query = "Μετάφρασε το κείμενο απο τα Ελληνικά στα Αγγλικά.\n\n"
-    query += f"Ελληνικά:\n{line['el']}\n\n"
-    query += "Αγγλικά:\n"
-    return Doc(
-        task_name=task_name,
-        query=query,
-        instruction="Μετάφρασε το κείμενο απο τα Ελληνικά στα Αγγλικά.\n\n",
-        choices=[line["en"]],
-        gold_index=0,
-    )
+def create_flores200_prompt(src_lang: str, tgt_lang: str):
+    def prompt_fn(line, task_name: str = None):
+        query = f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n"
+        query += f"{LANG_NAMES[src_lang]}:\n{line[LANG_COLS[src_lang]]}\n\n"
+        query += f"{LANG_NAMES[tgt_lang]}:\n"
+        return Doc(
+            task_name=task_name,
+            query=query,
+            instruction=f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n",
+            choices=[line[LANG_COLS[tgt_lang]]],
+            gold_index=0,
+        )
+    return prompt_fn
 
 
 FLORES200_PROMPT_FN_MAPPER = {
-    "en->el": flores200_en_to_el_prompt,
-    "el->en": flores200_el_to_en_prompt,
+    direction: create_flores200_prompt(direction.split("->")[0], direction.split("->")[1])
+    for direction in FLORES200_DIRECTIONS
 }
+
 
 FLORES200_TASKS = [
     Flores200Task(name=f"flores200:{direction}", prompt_fn=FLORES200_PROMPT_FN_MAPPER[direction])
@@ -799,7 +816,7 @@ llm_judge_mt_bench_el = SampleLevelMetricGrouping(
         judge_model_name="flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="vllm",
+        judge_backend="transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,
@@ -1182,6 +1199,49 @@ MMLU_PRO_EL_TASKS = [
     for prompt_strat in MMLU_PRO_EL_PROMPT_FNS
 ]
 
+
+# INCLUDE BASE 44 EL
+
+INCLUDE_BASE_44_SUBSETS = ["Greek"]
+
+def include_base_44_prompt(line, task_name: str = None):
+    query = f"Ερώτηση: {line['question']}\n"
+    query += "".join([f"{key}) {choice}\n" for key, choice in zip(GREEK_LETTER_INDICES, line["choices"])])
+    query += "Απάντηση:"
+
+    gold_ix = GREEK_LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
+    "__few_shots" in line and line["__few_shots"] is True  # They are adding few shots
+
+    return Doc(
+        task_name=task_name,
+        query=query,
+        choices=[" Α", " Β", " Γ", " Δ"],
+        gold_index=gold_ix,
+    )
+
+
+class IncludeBase44Task(LightevalTaskConfig):
+    def __init__(self, name, hf_subset):
+        super().__init__(
+            name=name,
+            suite=["community"],
+            prompt_function=include_base_44_prompt,
+            hf_repo="CohereForAI/include-base-44",
+            hf_subset=hf_subset,
+            hf_avail_splits=["test"],
+            evaluation_splits=["test"],
+            few_shots_split="test",
+            few_shots_select="seqeuntial",
+            generation_size=1,
+            metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+            stop_sequence=["\n"],
+            trust_dataset=True,
+            version=0,
+        )
+
+
+INCLUDE_BASE_44_TASKS = [IncludeBase44Task(name=f"include_base_44:{subset}", hf_subset=subset) for subset in INCLUDE_BASE_44_SUBSETS]
+
 _TASKS = (
     MMLU_EL_TASKS
     + ARC_EL_TASKS
@@ -1190,6 +1250,7 @@ _TASKS = (
     + FLORES200_TASKS
     + MMLU_PRO_EL_TASKS
     + MTBENCHEL_TASKS
+    + INCLUDE_BASE_44_TASKS
     + [hellaswag_el_task]
     + [xnli_el_task]
     + [xnli_2_el_task]
