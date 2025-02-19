@@ -70,7 +70,7 @@ llm_judge_mt_bench = SampleLevelMetricGrouping(
         judge_model_name="flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="vllm",
+        judge_backend="transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,

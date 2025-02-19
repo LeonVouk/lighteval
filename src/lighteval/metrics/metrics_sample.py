@@ -885,7 +885,7 @@ class JudgeLLM:
 
 
 class JudgeLLMMTBench(JudgeLLM):
-    def compute(self, predictions: list[str], formatted_doc: Doc, **kwargs):
+    def compute(self, sample_ids: list[str], responses: list[str], formatted_docs: Doc, **kwargs):
         """
         Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
@@ -894,26 +894,33 @@ class JudgeLLMMTBench(JudgeLLM):
         """
         import json
 
-        # If we are evaluating a multiturn task, we need to have specific field in the formatted doc
-        questions = formatted_doc.specific["multi_turn_queries"]
-        golds = formatted_doc.specific.get("reference", None)
+        questions = []
+        golds = []
+        for formatted_doc in formatted_docs:
+            questions.extend(formatted_doc.specific["multi_turn_queries"])
+            golds.extend(formatted_doc.specific.get("reference", [None, None]))
+        
+        predictions = []
+        for response in responses:
+            predictions.extend(list(response[0].result))
+        
+        options = [None for _ in range(len(golds))]
+        
+        scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
-        query_context_1 = {"query": questions[0], "context": ""}
-        query_context_2 = {"query": questions[1], "context": predictions[0]}
-
-        score_turn_1, message_turn_1, judgement_turn_1 = self.judge.evaluate_answer(
-            question=json.dumps(query_context_1, indent=2), answer=predictions[0], gold=golds[0] if golds else None
-        )
-        score_turn_2, message_turn_2, judgement_turn_2 = self.judge.evaluate_answer(
-            question=json.dumps(query_context_2, indent=2), answer=predictions[1], gold=golds[1] if golds else None
-        )
-
-        return {
-            "judge_score_turn_1": score_turn_1,
-            "judge_score_turn_2": score_turn_2,
-            "user_prompt": [message_turn_1, message_turn_2],
-            "judgement": [judgement_turn_1, judgement_turn_2],
-        }
+        metrics = []
+        offset = 0
+        for i in range(len(sample_ids)):
+            metrics.append(
+                {
+                    "judge_score_turn_1": scores[i+offset],
+                    "judge_score_turn_2": scores[i+offset+1],
+                    "user_prompt": [messages[i+offset], messages[i+offset+1]],
+                    "judgement": [judgements[i+offset], judgements[i+offset]],
+                }
+            )
+            offset += 1
+        return metrics
 
 
 class JudgeLLMMixEval(JudgeLLM):
