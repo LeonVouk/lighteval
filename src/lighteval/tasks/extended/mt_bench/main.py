@@ -50,7 +50,7 @@ def mt_bench_prompt(line, task_name: str = ""):
 
 
 def process_judge_response(x):
-    search = re.search(r"<score>\s(\d)\s</score>", x)
+    search = re.search(r"<score>\s*(\d)\s*</score>", x)
     return int(search.group(1)) if search else 0
 
 
@@ -67,10 +67,10 @@ llm_judge_mt_bench = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="flowaicom/Flow-Judge-v0.1",
+        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="transformers",
+        judge_backend="litellm", # "transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,

@@ -813,10 +813,10 @@ llm_judge_mt_bench_el = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="flowaicom/Flow-Judge-v0.1",
+        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="transformers",
+        judge_backend="litellm", # "transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,
@@ -830,10 +830,10 @@ llm_judge_mt_bench_el_greek_judge = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="flowaicom/Flow-Judge-v0.1",
+        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt_greek_judge,
         process_judge_response=process_judge_response,
-        judge_backend="vllm",
+        judge_backend="litellm", # "transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,
@@ -882,10 +882,10 @@ MT_BENCH_EL_METRIC_MAPPER = {
     "greek_judge": llm_judge_mt_bench_el_greek_judge,
 }
 
-MTBENCHEL_TASKS = [
+MTBENCH_EL_TASKS = [
     MTBenchElTask(
         name=f"mt_bench_el:{metric_fn}",
-        metric_fn=[MT_BENCH_EL_METRIC_MAPPER[metric_fn]],
+        metric_fn=MT_BENCH_EL_METRIC_MAPPER[metric_fn],
     )
     for metric_fn in MT_BENCH_EL_METRIC_MAPPER
 ]
@@ -1249,7 +1249,7 @@ _TASKS = (
     + BELEBELE_TASKS
     + FLORES200_TASKS
     + MMLU_PRO_EL_TASKS
-    + MTBENCHEL_TASKS
+    + MTBENCH_EL_TASKS
     + INCLUDE_BASE_44_TASKS
     + [hellaswag_el_task]
     + [xnli_el_task]
