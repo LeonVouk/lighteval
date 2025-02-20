@@ -29,7 +29,7 @@ from typing import Optional
 import yaml
 from tqdm import tqdm
 
-from lighteval.data import GenerativeTaskDataset
+from lighteval.data import GenerativeTaskDataset, LoglikelihoodDataset
 from lighteval.models.abstract_model import LightevalModel
 from lighteval.models.endpoints.endpoint_model import ModelInfo
 from lighteval.models.model_input import GenerationParameters
@@ -140,7 +140,7 @@ class LiteLLMClient(LightevalModel):
             max_new_tokens = min(max_new_tokens * 10, 32000)
         return max_new_tokens
 
-    def __call_api(self, prompt, return_logits, max_new_tokens, num_samples, stop_sequence):
+    def __call_api(self, prompt, return_logits, max_new_tokens, num_samples, stop_sequence, logit_bias):
         """Make API call with retries."""
         response = ModelResponse()
         for attempt in range(self.API_MAX_RETRY):
@@ -148,14 +148,15 @@ class LiteLLMClient(LightevalModel):
                 stop_sequence = self._prepare_stop_sequence(stop_sequence)
                 max_new_tokens = self._prepare_max_new_tokens(max_new_tokens)
 
-                if return_logits and not self.provider == "openai":
-                    logger.warning("Returning logits is not supported for this provider, ignoring.")
+                # if return_logits and not self.provider == "openai":
+                #     logger.warning("Returning logits is not supported for this provider, ignoring.")
 
                 # Prepare kwargs for completion call
                 kwargs = {
                     "model": self.model,
-                    "messages": prompt,
-                    "logprobs": return_logits if self.provider == "openai" else None,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "logprobs": return_logits,
+                    "logit_bias": logit_bias,
                     "base_url": self.base_url,
                     "n": num_samples,
                     "caching": True,
@@ -202,6 +203,7 @@ class LiteLLMClient(LightevalModel):
         max_new_tokens: int | list[int],
         num_samples: int | list[int],
         stop_sequence: list[str] | None = None,
+        logit_bias: list[dict[int, float]] | None = None,
     ):
         results = []
 
@@ -209,9 +211,10 @@ class LiteLLMClient(LightevalModel):
         max_new_tokenss = [max_new_tokens for _ in prompts] if not isinstance(max_new_tokens, list) else max_new_tokens
         num_sampless = [num_samples for _ in prompts] if not isinstance(num_samples, list) else num_samples
         stop_sequencess = [stop_sequence for _ in prompts]
+        logit_biass = [logit_bias for _ in prompts] if logit_bias is None else logit_bias
         assert (
-            len(prompts) == len(return_logitss) == len(max_new_tokenss) == len(num_sampless) == len(stop_sequencess)
-        ), f"Length of prompts, return_logitss, max_new_tokenss, num_sampless, stop_sequences, system_prompts should be the same but are {len(prompts)}, {len(return_logitss)}, {len(max_new_tokenss)}, {len(num_sampless)}, {len(stop_sequencess)}"
+            len(prompts) == len(return_logitss) == len(max_new_tokenss) == len(num_sampless) == len(stop_sequencess) == len(logit_biass)
+        ), f"Length of prompts, return_logitss, max_new_tokenss, num_sampless, stop_sequences, system_prompts, logit_bias should be the same but are {len(prompts)}, {len(return_logitss)}, {len(max_new_tokenss)}, {len(num_sampless)}, {len(stop_sequencess)}, {len(logit_biass)}"
 
         with ThreadPoolExecutor(self.CONCURENT_CALLS) as executor:
             for entry in tqdm(
@@ -222,6 +225,7 @@ class LiteLLMClient(LightevalModel):
                     max_new_tokenss,
                     num_sampless,
                     stop_sequencess,
+                    logit_biass
                 ),
                 total=len(prompts),
             ):
@@ -314,7 +318,51 @@ class LiteLLMClient(LightevalModel):
         """Tokenize the context and continuation and compute the log likelihood of those
         tokenized sequences.
         """
-        raise NotImplementedError
+        for request in requests:
+            if request.context == "":
+                request.tokenized_context = [" "]
+                request.tokenized_continuation = self.tok_encode(request.choice)
+            else:
+                # The following line is mandatory for compatibility with the harness
+                request.tokenized_context, request.tokenized_continuation = self.tok_encode_pair(
+                    request.context, request.choice, pairwise=self.pairwise_tokenization
+                )
+        return self._loglikelihood_tokens(requests)
+
+    def _loglikelihood_tokens(
+        self,
+        requests: list[LoglikelihoodRequest],
+    ) -> list[LoglikelihoodResponse]:
+        dataset = LoglikelihoodDataset(requests=requests, num_dataset_splits=1)
+        results = []
+
+        for _ in tqdm(dataset.splits_start_end_iterator()):
+            inputs = [dataset[i].context for i in range(len(dataset))]
+            logit_biass = []
+            max_new_tokens = [len(dataset[i].tokenized_continuation) for i in range(len(dataset))]
+
+            # assert all(
+            #     new_tokens == 1 for new_tokens in max_new_tokens
+            # ), "Only single token continuations are supported when using openai API."
+
+            for i in range(len(dataset)):
+                logit_bias = {tok: 100 for tok in dataset[i].tokenized_continuation}
+                logit_biass.append(logit_bias)
+
+            outputs = self.__call_api_parallel(
+                inputs, return_logits=True, max_new_tokens=max_new_tokens, num_samples=1, logit_bias=logit_biass
+            )
+
+            for output, input in zip(outputs, dataset):
+                continuation_logprobs = [content.logprob for content in output.choices[0].logprobs.content]
+                answer = LoglikelihoodResponse(
+                    input_tokens=input.tokenized_context + input.tokenized_continuation,
+                    generated_tokens=input.tokenized_continuation,
+                    result=(sum(continuation_logprobs), None),
+                )
+                results.append(answer)
+
+        return dataset.get_original_order(results)
 
     def loglikelihood_rolling(
         self, requests: list[LoglikelihoodRollingRequest], override_bs: Optional[int] = None
