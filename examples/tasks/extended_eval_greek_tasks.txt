@@ -16,15 +16,13 @@ community|truthfulqa_el:mc|0|0
 community|medicalmcqa|15|0
 # BELEBELE
 community|belebele:el|5|0
-# community|belebele:en|5|0
-# XNLI EL
-# community|xnli:el|5|0
-# FLORES200
-# community|flores200:en->el|0|0
-# community|flores200:el->en|0|0
+community|belebele:en|5|0
 # MMLU EL
 community|mmlu_el:all|5|0
 # WinoGrande
- leaderboard|winogrande|5|0
+leaderboard|winogrande|5|0
 # GSM8K
-# leaderboard|gsm8k|5|0
+leaderboard|gsm8k|5|0
+# MGSM
+community|mgsm:el|5|0
+

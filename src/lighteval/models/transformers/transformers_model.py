@@ -174,6 +174,7 @@ class TransformersModelConfig:
                 )
 
         self.model_parallel = boolstring_to_bool(self.model_parallel)
+        self.add_special_tokens = boolstring_to_bool(self.add_special_tokens)
         self.compile = boolstring_to_bool(self.compile)
 
         if self.quantization_config is not None and not is_bnb_available():
@@ -533,6 +534,7 @@ class TransformersModel(LightevalModel):
                 padding_side="left",
                 truncation_side="left",
             )
+        # if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.model_max_length = self.max_length
         logger.info("Tokenizer truncation and padding size set to the left side.")
@@ -634,10 +636,24 @@ class TransformersModel(LightevalModel):
 
         logger.warning("Running greedy multi turn generation, the batch size is set to 1 for this task.")
 
+        
+        # TODO change
+        MT_BENCH_CATEGORY_TEMP = {
+            "writing": 0.7,
+            "roleplay": 0.7,
+            "extraction": 0.0,
+            "math": 0.0,
+            "coding": 0.0,
+            "reasoning": 0.0,
+            "stem": 0.1,
+            "humanities": 0.1,
+            "arena-hard-200": 0.0,
+        }
+
         for request_batch in tqdm(
             dataloader, desc="Greedy Multi Turn generation", position=1, leave=False, disable=self.disable_tqdm
         ):
-            request = request_batch[0]
+            request = request_batch[0]   
             # For chat models, generation stops with EOS token, so we don't need to specify stop tokens
             if self.use_chat_template:
                 stop_tokens = []
@@ -679,6 +695,10 @@ class TransformersModel(LightevalModel):
                 }
             )
 
+            # TODO make this human
+            if request.category and MT_BENCH_CATEGORY_TEMP[request.category] >= 1e-4:
+                generation_config.update({"do_sample": True, "temperature": MT_BENCH_CATEGORY_TEMP[request.category]})
+    
             model_outputs: GenerateOutput = self.model.generate(
                 **model_inputs, stopping_criteria=stopping_criteria, **generation_config
             )
@@ -728,6 +748,11 @@ class TransformersModel(LightevalModel):
                     }
                 )
 
+
+                # TODO make this human
+                if request.category and MT_BENCH_CATEGORY_TEMP[request.category] >= 1e-4:
+                    generation_config.update({"do_sample": True, "temperature": MT_BENCH_CATEGORY_TEMP[request.category]})
+
                 model_outputs: GenerateOutput = self.model.generate(
                     input_ids=model_inputs["input_ids"],
                     attention_mask=model_inputs["attention_mask"],
@@ -767,7 +792,6 @@ class TransformersModel(LightevalModel):
                         padded_tokens_count=0,
                     )
                 )
-
         return results
 
     def greedy_until(

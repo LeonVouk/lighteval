@@ -475,6 +475,7 @@ class LightevalTask:
                     sample_index=document_id_seed,
                     request_index=0,
                     context=context,
+                    category=formatted_doc.specific.get('category'),
                     stop_sequence=self.stop_sequence,
                     generation_size=self.generation_size,
                     metric_categories=[MetricCategory.LLM_AS_JUDGE_MULTI_TURN],

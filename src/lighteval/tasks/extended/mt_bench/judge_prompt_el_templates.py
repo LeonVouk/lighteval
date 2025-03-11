@@ -21,6 +21,90 @@
 # SOFTWARE.
 
 
+def original_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold):
+    return [
+        {
+            "role": "user",
+            "content": f"""# GOAL
+Your job is to evaluate a task carried out by an AI system powered by a large \
+language model.
+
+You will be provided with the inputs and output of the task in the Greek language, as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria.
+
+# INPUT
+Below are the inputs required for performing the task:
+<inputs>
+{question}
+</inputs>
+
+# OUTPUT
+Below is the output of the task:
+<output>
+{answer}
+</output>
+
+# EVALUATION CRITERIA
+Here are the evaluation criteria that you need to use for evaluating the task. \
+All evaluation criteria should consider the fact that both the input and the response answer \
+are in Greek and should be evaluated based on their score in Greek:
+<evaluation_criteria>
+Your evaluation should consider factors such as the helpfulness, relevance, accuracy, depth, creativity, and level of detail of the response.
+</evaluation_criteria>
+
+# INSTRUCTIONS FOR THE EVALUATION
+Begin your evaluation by providing a short explanation. Be as objective as possible. After providing your explanation, \
+you must rate the response on a scale of 1 to 10. Then return your rating within <score> tags by strictly following this format: \"Rating: <score>rating</score>\", \
+for example a score of 5 should be returned as: \"Rating: <score>5</score>\".\n\n"
+
+Please accurately evaluate the task. Strictly adhere to the evaluation criteria.""",
+        }
+    ]
+
+
+def original_judge_prompt_mt_bench_el_with_ref(question, options, answer, gold):
+    return [
+        {
+            "role": "user",
+            "content": f"""# GOAL
+Your job is to evaluate a task carried out by an AI system powered by a large \
+language model.
+
+You will be provided with the inputs and output of the task in the Greek language, \
+as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria provided.
+
+# INPUT
+Below are the inputs required for performing the task:
+<inputs>
+{question}
+</inputs>
+
+# OUTPUT
+Below is the output of the task:
+<output>
+{answer}
+</output>
+
+# EVALUATION CRITERIA
+Here are the evaluation criteria that you need to use for evaluating the task. \
+All evaluation criteria should consider the fact that the input, response answer and \
+reference answer are all in Greek and should be evaluated based on their score in Greek:
+<evaluation_criteria>
+How well the response answers the question, the reference answer is:
+{gold}
+</evaluation_criteria>
+
+# INSTRUCTIONS FOR THE EVALUATION
+Begin your evaluation by providing a short explanation. Be as objective as possible. After providing your explanation, \
+you must rate the response on a scale of 1 to 10. Then return your rating within <score> tags by strictly following this format: \"Rating: <score>rating</score>\", \
+for example a score of 5 should be returned as: \"Rating: <score>5</score>\".\n\n"
+
+Please accurately evaluate the task. Strictly adhere to the evaluation criteria.""",
+        }
+    ]
+
+
 def flow_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold):
     return [
         {

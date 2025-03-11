@@ -42,7 +42,7 @@ from lighteval.metrics.utils.metric_utils import (
     SampleLevelMetric,
     SampleLevelMetricGrouping,
 )
-from lighteval.tasks.default_prompts import hellaswag_preprocess
+from lighteval.tasks.default_prompts import hellaswag_preprocess, LETTER_INDICES
 from lighteval.tasks.extended.ifeval import (
     ifeval_el_instructions_registry as instructions_registry,
 )
@@ -56,6 +56,8 @@ from lighteval.tasks.extended.mt_bench.judge_prompt_el_templates import (
     flow_judge_prompt_mt_bench_el_with_ref_greek_judge,
     flow_judge_prompt_mt_bench_el_without_ref,
     flow_judge_prompt_mt_bench_el_without_ref_greek_judge,
+    original_judge_prompt_mt_bench_el_with_ref,
+    original_judge_prompt_mt_bench_el_without_ref
 )
 from lighteval.tasks.extended.mt_bench.main import (
     mt_bench_prompt,
@@ -66,6 +68,17 @@ from lighteval.tasks.requests import Doc
 
 
 # MMLU
+
+LANG_NAMES = {
+    "en": "Αγγλικά",
+    "fr": "Γαλλικά",
+    "pt": "Πορτογαλικά",
+    "de": "Γερμανικά",
+    "es": "Ισπανικά",
+    "it": "Ιταλικά",
+    "el": "Ελληνικά"
+}
+
 
 GREEK_LETTER_INDICES = [
     "Α",
@@ -182,7 +195,7 @@ class MMLUELTask(LightevalTaskConfig):
 
 def mmlu_el_prompt(line, topic, task_name: str = None):
     # TODO probably have to change choice labels.
-    query = f"Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής (που παρουσιάζονται μαζί με της απαντήσεις τους) έχουν να κάνουν με {line['subject'].replace('_', ' ')}.\n\n"
+    query = f"Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής (που παρουσιάζονται μαζί με τις απαντήσεις τους) έχουν να κάνουν με {line['subject'].replace('_', ' ')}.\n\n"
     query += line["question"] + "\n"
     query += "".join([f"{key}. {choice}\n" for key, choice in zip(GREEK_LETTER_INDICES, line["choices"])])
     query += "Απάντηση:"
@@ -195,7 +208,7 @@ def mmlu_el_prompt(line, topic, task_name: str = None):
         query=query,
         choices=[" Α", " Β", " Γ", " Δ"],
         gold_index=gold_ix,
-        instruction=f"Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής (που παρουσιάζονται μαζί με της απαντήσεις τους) έχουν να κάνουν με {line['subject'].replace('_', ' ')}.\n\n",
+        instruction=f"Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής (που παρουσιάζονται μαζί με τις απαντήσεις τους) έχουν να κάνουν με {line['subject'].replace('_', ' ')}.\n\n",
     )
 
 
@@ -661,17 +674,7 @@ FLORES200_DIRECTIONS = [
     "it->el", "el->it"
 ]
 
-LANG_NAMES = {
-    "en": "Αγγλικά",
-    "fr": "Γαλλικά",
-    "pt": "Πορτογαλικά",
-    "de": "Γερμανικά",
-    "es": "Ισπανικά",
-    "it": "Ιταλικά",
-    "el": "Ελληνικά"
-}
-
-LANG_COLS = {
+FLORES200_LANG_COLS = {
     "en": "eng_Latn",
     "fr": "fra_Latn",
     "pt": "por_Latn",
@@ -690,9 +693,9 @@ class Flores200Task(LightevalTaskConfig):
             prompt_function=prompt_fn,
             hf_repo="ilsp/flores200_el-x",
             hf_subset="default",
-            hf_avail_splits=["validation", "test"],
-            evaluation_splits=["test"],
-            few_shots_split="validation",
+            hf_avail_splits=["dev", "devtest"],
+            evaluation_splits=["devtest"],
+            few_shots_split="dev",
             few_shots_select="sequential",
             generation_size=100,
             metric=[Metrics.bleu],
@@ -705,13 +708,13 @@ class Flores200Task(LightevalTaskConfig):
 def create_flores200_prompt(src_lang: str, tgt_lang: str):
     def prompt_fn(line, task_name: str = None):
         query = f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n"
-        query += f"{LANG_NAMES[src_lang]}:\n{line[LANG_COLS[src_lang]]}\n\n"
+        query += f"{LANG_NAMES[src_lang]}:\n{line[FLORES200_LANG_COLS[src_lang]]}\n\n"
         query += f"{LANG_NAMES[tgt_lang]}:\n"
         return Doc(
             task_name=task_name,
             query=query,
             instruction=f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n",
-            choices=[line[LANG_COLS[tgt_lang]]],
+            choices=[line[FLORES200_LANG_COLS[tgt_lang]]],
             gold_index=0,
         )
     return prompt_fn
@@ -726,6 +729,73 @@ FLORES200_PROMPT_FN_MAPPER = {
 FLORES200_TASKS = [
     Flores200Task(name=f"flores200:{direction}", prompt_fn=FLORES200_PROMPT_FN_MAPPER[direction])
     for direction in FLORES200_DIRECTIONS
+]
+
+
+# WMT 24
+
+WMT24_DIRECTIONS = [
+    "en->el", 
+    "el->en",
+]
+
+SUBSET_MAPPING = {
+    "en->el": "en-el_GR",
+    "el->en": "en-el_GR",
+}
+
+
+class WMT24Task(LightevalTaskConfig):
+    def __init__(self, name, prompt_fn):
+        super().__init__(
+            name=name,
+            suite=["community"],
+            prompt_function=prompt_fn,
+            hf_repo="google/wmt24pp",
+            hf_subset="default",
+            hf_avail_splits=["train"],
+            evaluation_splits=["train"],
+            few_shots_split="train",
+            few_shots_select="sequential",
+            generation_size=100,
+            metric=[Metrics.bleu],
+            stop_sequence=["\n"],
+            trust_dataset=True,
+            version=0,
+        )
+
+
+def create_wmt24_prompt(src_lang: str, tgt_lang: str):
+    def prompt_fn(line, task_name: str = None):
+        
+        src_col = 'source'
+        tgt_col = 'target'
+        if src_lang != 'en':
+            src_col = 'target'
+            tgt_col = 'source'
+        
+        query = f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n"
+        query += f"{LANG_NAMES[src_lang]}:\n{line[src_col]}\n\n"
+        query += f"{LANG_NAMES[tgt_lang]}:\n"
+        return Doc(
+            task_name=task_name,
+            query=query,
+            instruction=f"Μετάφρασε το κείμενο απο τα {LANG_NAMES[src_lang]} στα {LANG_NAMES[tgt_lang]}.\n\n",
+            choices=[line[tgt_col]],
+            gold_index=0,
+        )
+    return prompt_fn
+
+
+WMT24_PROMPT_FN_MAPPER = {
+    direction: create_flores200_prompt(direction.split("->")[0], direction.split("->")[1])
+    for direction in FLORES200_DIRECTIONS
+}
+
+
+WMT24_TASKS = [
+    Flores200Task(name=f"wmt24:{direction}", prompt_fn=WMT24_PROMPT_FN_MAPPER[direction])
+    for direction in WMT24_DIRECTIONS
 ]
 
 
@@ -795,9 +865,9 @@ mgsm_el_task = LightevalTaskConfig(
 
 def flow_judge_mt_bench_el_prompt(question, answer, options, gold):
     if gold is not None and len(gold) > 0:
-        return flow_judge_prompt_mt_bench_el_with_ref(question, options, answer, gold)
+        return original_judge_prompt_mt_bench_el_with_ref(question, options, answer, gold)
 
-    return flow_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold)
+    return original_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold)
 
 
 def flow_judge_mt_bench_el_prompt_greek_judge(question, answer, options, gold):
@@ -813,7 +883,7 @@ llm_judge_mt_bench_el = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
+        judge_model_name="openai/gpt-4o", #"flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt,
         process_judge_response=process_judge_response,
         judge_backend="litellm", # "transformers",
@@ -830,7 +900,7 @@ llm_judge_mt_bench_el_greek_judge = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
+        judge_model_name="litellm_proxy/krikri-dpo", # "litellm_proxy/krikri-dpo" "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt_greek_judge,
         process_judge_response=process_judge_response,
         judge_backend="litellm", # "transformers",
@@ -1065,11 +1135,11 @@ def select_by_category(df, subject):
 
 # TODO including_answer part of MMLU PRO not yet implemented in Greek
 def format_cot_example(example, including_answer=True):
-    prompt = "Question:\n"
+    prompt = "Ερώτηση:\n"
     question = example["question"]
     options = example["options"]
     prompt += question + "\n"
-    prompt += "Options:\n"
+    prompt += "Επιλογές:\n"
     for i, opt in enumerate(options):
         prompt += "{}. {}\n".format(MMLU_PRO_CHOICES[i], opt)
     if including_answer:
@@ -1094,7 +1164,7 @@ def format_example(example):
 
 def mmlu_pro_el_prompt(line, task_name: str = None):
     # TODO probably have to change choice labels. And fix prompt (maybe add subject in prompt)
-    prompt = """Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής παρουσιάζονται μαζί με της απαντήσεις τους.
+    prompt = """Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής παρουσιάζονται μαζί με τις απαντήσεις τους.
     Σκέψου βήμα προς βήμα και τέλειωσε την απάντηση σου με "η απάντηση είναι (Χ)"
     όπου Χ είναι το γράμμα που αντιστοιχτεί στην σωστή επιλογή.\n"""
     query = prompt + format_example(line)
@@ -1110,7 +1180,7 @@ def mmlu_pro_el_prompt(line, task_name: str = None):
 
 
 def mmlu_pro_el_cot_prompt(line, task_name: str = None):
-    prompt = """Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής παρουσιάζονται μαζί με της απαντήσεις τους.
+    prompt = """Οι ακόλουθες ερωτήσεις πολλαπλής επιλογής παρουσιάζονται μαζί με τις απαντήσεις τους.
     Σκέψου βήμα προς βήμα και τέλειωσε την απάντηση σου με "η απάντηση είναι (Χ)"
     όπου Χ είναι το γράμμα που αντιστοιχτεί στην σωστή επιλογή.\n"""
     # TODO probably have to change choice labels.
@@ -1204,9 +1274,10 @@ MMLU_PRO_EL_TASKS = [
 
 INCLUDE_BASE_44_SUBSETS = ["Greek"]
 
-def include_base_44_prompt(line, task_name: str = None):
-    query = f"Ερώτηση: {line['question']}\n"
-    query += "".join([f"{key}) {choice}\n" for key, choice in zip(GREEK_LETTER_INDICES, line["choices"])])
+def include_base_44_cot_prompt_el(line, task_name: str = None):
+    prompt="""Η ακόλουθη ερώτηση πολλαπλής επιλογής παρουσιάζεται μαζί με τις πιθανές απαντήσεις της. Σκέψου βήμα προς βήμα.\n"""
+    query = prompt + f"Ερώτηση: {line['question']}\n"
+    query += "".join([f"{key}) {choice}\n" for key, choice in zip(GREEK_LETTER_INDICES, [line["option_a"], line["option_b"], line["option_c"], line["option_d"]])])
     query += "Απάντηση:"
 
     gold_ix = GREEK_LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
@@ -1219,19 +1290,64 @@ def include_base_44_prompt(line, task_name: str = None):
         gold_index=gold_ix,
     )
 
+def include_base_44_cot_prompt_en(line, task_name: str = None):
+    prompt="""The following multiple choice question is provided alongside its possible answers. Let's take it step by step"""
+    query = prompt + f"Question: {line['question']}\n"
+    query += "".join([f"{key}) {choice}\n" for key, choice in zip(LETTER_INDICES, [line["option_a"], line["option_b"], line["option_c"], line["option_d"]])])
+    query += "Answer:"
+
+    gold_ix = GREEK_LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
+    "__few_shots" in line and line["__few_shots"] is True  # They are adding few shots
+
+    return Doc(
+        task_name=task_name,
+        query=query,
+        choices=[" A", " B", " C", " D"],
+        gold_index=gold_ix,
+    )
+
+def include_base_44_prompt_el(line, task_name: str = None):
+    query = f"Ερώτηση: {line['question']}\n"
+    query += "".join([f"{key}) {choice}\n" for key, choice in zip(GREEK_LETTER_INDICES, [line["option_a"], line["option_b"], line["option_c"], line["option_d"]])])
+    query += "Απάντηση:"
+
+    gold_ix = GREEK_LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
+    "__few_shots" in line and line["__few_shots"] is True  # They are adding few shots
+
+    return Doc(
+        task_name=task_name,
+        query=query,
+        choices=[" Α", " Β", " Γ", " Δ"],
+        gold_index=gold_ix,
+    )
+
+def include_base_44_prompt_en(line, task_name: str = None):
+    query = f"Question: {line['question']}\n"
+    query += "".join([f"{key}) {choice}\n" for key, choice in zip(LETTER_INDICES, [line["option_a"], line["option_b"], line["option_c"], line["option_d"]])])
+    query += "Answer:"
+
+    gold_ix = GREEK_LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
+    "__few_shots" in line and line["__few_shots"] is True  # They are adding few shots
+
+    return Doc(
+        task_name=task_name,
+        query=query,
+        choices=[" A", " B", " C", " D"],
+        gold_index=gold_ix,
+    )
 
 class IncludeBase44Task(LightevalTaskConfig):
-    def __init__(self, name, hf_subset):
+    def __init__(self, name, hf_subset, prompt_fn):
         super().__init__(
             name=name,
             suite=["community"],
-            prompt_function=include_base_44_prompt,
+            prompt_function=prompt_fn,
             hf_repo="CohereForAI/include-base-44",
             hf_subset=hf_subset,
             hf_avail_splits=["test"],
             evaluation_splits=["test"],
-            few_shots_split="test",
-            few_shots_select="seqeuntial",
+            few_shots_split="validation",
+            few_shots_select="sequential",
             generation_size=1,
             metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
             stop_sequence=["\n"],
@@ -1239,8 +1355,83 @@ class IncludeBase44Task(LightevalTaskConfig):
             version=0,
         )
 
+INCLUDE_BASE_44_PROMPT_MAPPER = {
+    'Greek': {
+        'cot_el': include_base_44_cot_prompt_el, 
+        'cot_en': include_base_44_cot_prompt_en, 
+        'fewshot_el': include_base_44_prompt_el, 
+        'fewshot_en': include_base_44_prompt_en
+    }
+}
 
-INCLUDE_BASE_44_TASKS = [IncludeBase44Task(name=f"include_base_44:{subset}", hf_subset=subset) for subset in INCLUDE_BASE_44_SUBSETS]
+
+INCLUDE_BASE_44_TASKS = [IncludeBase44Task(name=f"include_base_44:{subset}:{setting}", hf_subset=subset, prompt_fn=prompt) for subset, mapping in INCLUDE_BASE_44_PROMPT_MAPPER.items() for setting, prompt in mapping.items()]
+
+
+# Ancient-Modern Greek translations
+
+AMG_DIRECTIONS = [
+    "grc->ell",
+    "ell->grc",
+]
+
+def amg_grc_to_ell_prompt(line, task_name: str = None):
+    query = "Μετάφρασε το κείμενο από τα Αρχαία Ελληνικά στα Νέα Ελληνικά.\n\n"
+    query += f"Αρχαία Ελληνικά:\n{line['grc']}\n\n"
+    query += "Νέα Ελληνικά:\n"
+    return Doc(
+        task_name=task_name,
+        query=query,
+        instruction="Μετάφρασε το κείμενο από τα Αρχαία Ελληνικά στα Νέα Ελληνικά.\n\n",
+        choices=[line["ell"]],
+        gold_index=0,
+    )
+
+
+def amg_ell_to_grc_prompt(line, task_name: str = None):
+    query = "Μετάφρασε το κείμενο από τα Νέα Ελληνικά στα Αρχαία Ελληνικά.\n\n"
+    query += f"Νέα Ελληνικά:\n{line['ell']}\n\n"
+    query += "Αρχαία Ελληνικά:\n"
+    return Doc(
+        task_name=task_name,
+        query=query,
+        instruction="Μετάφρασε το κείμενο από τα Νέα Ελληνικά στα Αρχαία Ελληνικά.\n\n",
+        choices=[line["grc"]],
+        gold_index=0,
+    )
+
+
+class AMGTask(LightevalTaskConfig):
+    def __init__(self, name, prompt_fn):
+        super().__init__(
+            name=name,
+            suite=["community"],
+            prompt_function=prompt_fn,
+            hf_repo="ilsp/ancient-modern_greek_translations",
+            hf_subset="default",
+            hf_avail_splits=["test"],
+            evaluation_splits=["test"],
+            few_shots_split=None,
+            few_shots_select=None,
+            generation_size=100,
+            metric=[Metrics.bleu],
+            stop_sequence=["\n"],
+            trust_dataset=True,
+            version=0,
+        )
+
+
+
+AMG_PROMPT_FN_MAPPER = {
+    "grc->ell": amg_grc_to_ell_prompt,    
+    "ell->grc": amg_ell_to_grc_prompt,
+}
+
+AMG_TASKS = [
+    AMGTask(name=f"amg:{direction}", prompt_fn=AMG_PROMPT_FN_MAPPER[direction])
+    for direction in AMG_DIRECTIONS
+]
+
 
 _TASKS = (
     MMLU_EL_TASKS
@@ -1251,6 +1442,8 @@ _TASKS = (
     + MMLU_PRO_EL_TASKS
     + MTBENCH_EL_TASKS
     + INCLUDE_BASE_44_TASKS
+    + AMG_TASKS
+    + WMT24_TASKS
     + [hellaswag_el_task]
     + [xnli_el_task]
     + [xnli_2_el_task]

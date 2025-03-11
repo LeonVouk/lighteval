@@ -21,6 +21,83 @@
 # SOFTWARE.
 
 
+def original_judge_prompt_mt_bench_without_ref(questions: list[list[str]], options: list[list[str]], answers: list[list[str]], golds: list[list[str]]):
+    return [
+        {
+            "role": "user",
+            "content": f"""# GOAL
+Your job is to act as an impartial judge and to evaluate the quality of the response provided by an AI assistant to the user question.
+
+You will be provided with the whole conversation, as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria. \
+Your evaluation should focus on the assistant's answer to the second user question.
+
+
+<|The Start of Assistant A's Conversation with User|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Assistant A:\n{answers[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Assistant A:\n{answers[1]}\n\n\
+<|The End of Assistant A's Conversation with User|>
+
+# EVALUATION CRITERIA
+Here are the evaluation criteria that you need to use for evaluating the task:
+<evaluation_criteria>
+Your evaluation should consider factors such as the helpfulness, relevance, accuracy, depth, creativity, and level of detail of the response.
+</evaluation_criteria>
+
+# INSTRUCTIONS FOR THE EVALUATION
+Begin your evaluation by providing a short explanation. Be as objective as possible. After providing your explanation, \
+you must rate the response on a scale of 1 to 10. Then return your rating within <score> tags by strictly following this format: \"Rating: <score>rating</score>\", \
+for example a score of 5 should be returned as: \"Rating: <score>5</score>\".\n\n"
+
+Please accurately evaluate the task. Strictly adhere to the evaluation criteria.""",
+        }
+    ]
+
+
+def original_judge_prompt_mt_bench_with_ref(questions: list[list[str]], options: list[list[str]], answers: list[list[str]], golds: list[list[str]]):
+    return [
+        {
+            "role": "user",
+            "content": f"""# GOAL
+Your job is to act as an impartial judge and to evaluate the quality of the response provided by an AI assistant to the user question.
+
+You will be provided with the whole conversation, as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria. \
+Your evaluation should focus on the assistant's answer to the second user question.
+
+
+<|The Start of Assistant A's Conversation with User|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Assistant A:\n{answers[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Assistant A:\n{answers[1]}\n\n\
+<|The End of Assistant A's Conversation with User|>
+
+
+# EVALUATION CRITERIA
+Here are the evaluation criteria that you need to use for evaluating the task:
+<evaluation_criteria>
+How well the response answers the question, the reference answer is:
+<|The Start of Reference Answer|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Reference answer:\n{golds[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Reference answer:\n{golds[1]}\n\n\
+<|The End of Reference Answer|>
+</evaluation_criteria>
+
+# INSTRUCTIONS FOR THE EVALUATION
+Begin your evaluation by providing a short explanation. Be as objective as possible. After providing your explanation, \
+you must rate the response on a scale of 1 to 10. Then return your rating within <score> tags by strictly following this format: \"Rating: <score>rating</score>\", \
+for example a score of 5 should be returned as: \"Rating: <score>5</score>\".\n\n"
+
+Please accurately evaluate the task. Strictly adhere to the evaluation criteria.""",
+        }
+    ]
+
+
 def flow_judge_prompt_mt_bench_without_ref(question, options, answer, gold):
     return [
         {

@@ -146,6 +146,7 @@ class GreedyUntilMultiTurnRequest(Request):
     request_type = RequestType.GREEDY_UNTIL_MULTI_TURN
     do_sample: bool = False
     use_logits: bool = False
+    category: str = None
 
 
 class SampleUid(NamedTuple):

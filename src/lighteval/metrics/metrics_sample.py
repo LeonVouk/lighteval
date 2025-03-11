@@ -915,6 +915,7 @@ class JudgeLLM:
 
 
 class JudgeLLMMTBench(JudgeLLM):
+
     def compute(self, sample_ids: list[str], responses: list[str], formatted_docs: Doc, **kwargs):
         """
         Compute the score of a generative task using a llm as a judge.
@@ -927,29 +928,31 @@ class JudgeLLMMTBench(JudgeLLM):
         questions = []
         golds = []
         for formatted_doc in formatted_docs:
-            questions.extend(formatted_doc.specific["multi_turn_queries"])
-            golds.extend(formatted_doc.specific.get("reference", [None, None]))
+            questions.append(formatted_doc.specific["multi_turn_queries"])
+            golds.append(formatted_doc.specific.get("reference", [None, None]))
         
         predictions = []
         for response in responses:
-            predictions.extend(list(response[0].result))
+            predictions.append(list(response[0].result))
         
         options = [None for _ in range(len(golds))]
-        
+   
         scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
         metrics = []
-        offset = 0
         for i in range(len(sample_ids)):
-            metrics.append(
-                {
-                    "judge_score_turn_1": scores[i+offset],
-                    "judge_score_turn_2": scores[i+offset+1],
-                    "user_prompt": [messages[i+offset], messages[i+offset+1]],
-                    "judgement": [judgements[i+offset], judgements[i+offset]],
-                }
-            )
-            offset += 1
+            try:
+                metrics.append(
+                    {
+                        "judge_score_turn_1": 10,
+                        "judge_score_turn_2": scores[i],
+                        "user_prompt": ["", messages[i]],
+                        "judgement": ["", judgements[i]],
+                    }
+                )
+            except:
+                logger.warning(f"Error at index {i}")
+        
         return metrics
 
 

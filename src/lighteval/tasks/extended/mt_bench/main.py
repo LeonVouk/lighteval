@@ -28,6 +28,8 @@ from lighteval.metrics.utils.metric_utils import SampleLevelMetricGrouping, Metr
 from lighteval.tasks.extended.mt_bench.judge_prompt_templates import (
     flow_judge_prompt_mt_bench_with_ref,
     flow_judge_prompt_mt_bench_without_ref,
+    original_judge_prompt_mt_bench_with_ref,
+    original_judge_prompt_mt_bench_without_ref
 )
 import re
 import numpy as np
@@ -50,15 +52,23 @@ def mt_bench_prompt(line, task_name: str = ""):
 
 
 def process_judge_response(x):
-    search = re.search(r"<score>\s*(\d)\s*</score>", x)
-    return int(search.group(1)) if search else 0
+    """fucking claude man"""
+    # search = re.search(r"<score>\s*(\d)\s*</score>", x)
+    # return int(search.group(1)) if search else 0
+    search = re.search(r'(?:<score>\s*(\d+)\s*</score>|["\']?(?:rating|score)["\']?\s*:\s*(\d+))', x)
+    
+    number = None
+    if search:
+        number = search.group(1) if search.group(1) is not None else search.group(2)
+    
+    return int(number) if number else 0
 
 
 def flow_judge_mt_bench_prompt(question, answer, options, gold):
     if gold is not None and len(gold) > 0:
-        return flow_judge_prompt_mt_bench_with_ref(question, options, answer, gold)
+        return original_judge_prompt_mt_bench_with_ref(question, options, answer, gold)
 
-    return flow_judge_prompt_mt_bench_without_ref(question, options, answer, gold)
+    return original_judge_prompt_mt_bench_without_ref(question, options, answer, gold)
 
 
 llm_judge_mt_bench = SampleLevelMetricGrouping(
@@ -67,7 +77,7 @@ llm_judge_mt_bench = SampleLevelMetricGrouping(
     category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
     use_case=MetricUseCase.SUMMARIZATION,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="litellm_proxy/krikri-dpo", #"flowaicom/Flow-Judge-v0.1",
+        judge_model_name="openai/gpt-4o", # "litellm_proxy/krikri-dpo" "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_prompt,
         process_judge_response=process_judge_response,
         judge_backend="litellm", # "transformers",

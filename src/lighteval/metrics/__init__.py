@@ -231,11 +231,17 @@ def apply_llm_as_judge_metric(
 
     # We merge the outputs per metric in a list of dict for each sample
     # example: [{metric1_sample1, metric2_sample1}, {metric1_sample2, metric2_sample2}]
+    # outputs = []
+    # for i in range(len(sample_ids)):
+    #     output = {}
+    #     for metric_outputs in outputs_per_metrics:
+    #         print("LEN MO", len(metric_outputs))
+
+    #         output.update(metric_outputs[i])
+    #     outputs.append(output)
     outputs = []
-    for i in range(len(sample_ids)):
-        output = {}
-        for metric_outputs in outputs_per_metrics:
-            output.update(metric_outputs[i])
-        outputs.append(output)
+    for metric_outputs in outputs_per_metrics:
+        for m_o in metric_outputs:
+            outputs.append(m_o)
 
     return outputs

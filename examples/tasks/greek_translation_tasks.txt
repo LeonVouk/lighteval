@@ -1,0 +1,19 @@
+# WMT 24
+community|wmt24:el->en|5|0
+community|wmt24:en->el|5|0
+# FLORES200
+community|flores200:en->el|5|0
+community|flores200:el->en|5|0
+community|flores200:fr->el|5|0
+community|flores200:el->fr|5|0
+community|flores200:pt->el|5|0
+community|flores200:el->pt|5|0
+community|flores200:de->el|5|0
+community|flores200:el->de|5|0
+community|flores200:es->el|5|0
+community|flores200:el->es|5|0
+community|flores200:it->el|5|0
+community|flores200:el->it|5|0
+# AMG
+community|amg:grc->ell|0|0
+community|amg:ell->grc|0|0
