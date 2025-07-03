@@ -7,18 +7,18 @@ community|arc_el:easy|25|0
 # HellaSwag
 # leaderboard|hellaswag|10|0
 # Hellaswag EL
-# community|hellaswag_el|10|0
+community|hellaswag_el|10|0
 # TruthfulQA
 # leaderboard|truthfulqa:mc|0|0
 # TruthfulQA EL
-# community|truthfulqa_el:mc|0|0
+community|truthfulqa_el:mc|0|0
 # MedicalMCQA EL
-# community|medicalmcqa|15|0
+community|medicalmcqa|15|0
 # BELEBELE
-# community|belebele:el|5|0
+community|belebele:el|5|0
 # community|belebele:en|5|0
 # MMLU EL
-# community|mmlu_el:all|5|0
+community|mmlu_el:all|5|0
 # MMLU-PRO EL
 # community|mmlu_pro_el|5|0
 # WinoGrande
@@ -28,6 +28,6 @@ community|arc_el:easy|25|0
 # MGSM
 # community|mgsm:el|5|0
 # Base 44
-# community|include_base_44:Greek:fewshot_el|5|0
+community|include_base_44:Greek:fewshot_el|5|0
 # MCQAASEP EL
-# community|mcqa_asep|0|0
+community|mcqa_asep|0|0
