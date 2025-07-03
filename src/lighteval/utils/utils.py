@@ -253,4 +253,4 @@ def remove_reasoning_tags(text: str, tag_pairs: list[tuple[str, str]]) -> str:
             else:
                 break
 
-    return result
+    return result.strip() # I think this is prudent
