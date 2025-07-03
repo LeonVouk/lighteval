@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from tqdm import tqdm
 
-from lighteval.data import GenerativeTaskDataset
+from lighteval.data import GenerativeTaskDataset, LoglikelihoodDataset
 from lighteval.models.abstract_model import LightevalModel
 from lighteval.models.endpoints.endpoint_model import ModelInfo
 from lighteval.models.model_output import ModelResponse
@@ -318,49 +318,71 @@ class LiteLLMClient(LightevalModel):
         """Tokenize the context and continuation and compute the log likelihood of those
         tokenized sequences.
         """
-        for request in requests:
-            if request.context == "":
-                request.tokenized_context = [" "]
-                request.tokenized_continuation = self.tok_encode(request.choice)
-            else:
-                # The following line is mandatory for compatibility with the harness
-                request.tokenized_context, request.tokenized_continuation = self.tok_encode_pair(
-                    request.context, request.choice, pairwise=self.pairwise_tokenization
-                )
-        return self._loglikelihood_tokens(requests)
+        return self._loglikelihood_tokens(docs)
 
     def _loglikelihood_tokens(
         self,
-        requests: list[LoglikelihoodRequest],
-    ) -> list[LoglikelihoodResponse]:
-        dataset = LoglikelihoodDataset(requests=requests, num_dataset_splits=1)
+        docs: list[Doc],
+    ) -> list[ModelResponse]:
+        dataset = LoglikelihoodDataset(requests=docs, num_dataset_splits=1)
         results = []
 
-        for _ in tqdm(dataset.splits_start_end_iterator()):
-            inputs = [dataset[i].context for i in range(len(dataset))]
-            logit_biass = []
-            max_new_tokens = [len(dataset[i].tokenized_continuation) for i in range(len(dataset))]
+        for split in tqdm(dataset.splits_iterator()):
+            contexts = [self.prompt_manager.prepare_prompt(doc) for doc in split]
+            max_new_tokens = split[0].generation_size  # could be none
 
-            # assert all(
-            #     new_tokens == 1 for new_tokens in max_new_tokens
-            # ), "Only single token continuations are supported when using openai API."
+            inputs = []
+            tokenized_continuations_batch = []
+            tokenized_contexts_batch = []
 
-            for i in range(len(dataset)):
-                logit_bias = {tok: 100 for tok in dataset[i].tokenized_continuation}
-                logit_biass.append(logit_bias)
+            for context, doc in zip(contexts, split):
+                tokenized_contexts, tokenized_continuations = self.tok_encode_pair(
+                    context, doc.choices, pairwise=self.pairwise_tokenization
+                )
+                for tokenized_context, tokenized_continuation in zip(tokenized_contexts, tokenized_continuations):
+                    inputs.append(tokenized_context + tokenized_continuation)
+                    tokenized_continuations_batch.append(tokenized_continuation)
+                    tokenized_contexts_batch.append(tokenized_context)
 
+            # Left truncate the inputs to the maximum length
+            inputs = [input[-self.max_length:] for input in inputs]
             outputs = self.__call_api_parallel(
-                inputs, return_logits=True, max_new_tokens=max_new_tokens, num_samples=1, logit_bias=logit_biass
-            )
+                inputs, return_logits=True, max_new_tokens=max_new_tokens, num_samples=1)
 
-            for output, input in zip(outputs, dataset):
-                continuation_logprobs = [content.logprob for content in output.choices[0].logprobs.content]
-                answer = LoglikelihoodResponse(
-                    input_tokens=input.tokenized_context + input.tokenized_continuation,
-                    generated_tokens=input.tokenized_continuation,
-                    result=(sum(continuation_logprobs), None),
+            flat_index = 0
+            for i, doc in enumerate(split):
+                outputs_doc = outputs[flat_index : flat_index + len(doc.choices)]
+                tokenized_continuations_doc = tokenized_continuations_batch[flat_index : flat_index + len(doc.choices)]
+                tokenized_contexts_doc = tokenized_contexts_batch[flat_index : flat_index + len(doc.choices)]
+                logprobs_doc = []
+                argmax_doc = []
+                output_tokens_doc = []
+                input_tokens_doc = []
+
+                for output, context, continuation in zip(
+                    outputs_doc, tokenized_contexts_doc, tokenized_continuations_doc
+                ):
+                    continuation_logprobs = []
+                    for token, logprobs in zip(continuation[::-1], output.choices[0].logprobs.content[::-1]):
+                        continuation_logprobs.append(logprobs[token].logprob)
+
+                    bool_score = all(logprob.rank == 1 for logprob in continuation_logprobs)
+                    continuation_logprobs = [logprob.logprob for logprob in continuation_logprobs]
+                    continuation_logprobs = sum(continuation_logprobs)
+                    logprobs_doc.append(continuation_logprobs)
+                    argmax_doc.append(bool_score)
+                    output_tokens_doc.append(continuation)
+                    input_tokens_doc.append(context)
+
+                answer = ModelResponse(
+                    input=contexts[i],
+                    input_tokens=input_tokens_doc,
+                    output_tokens=output_tokens_doc,
+                    logprobs=logprobs_doc,
+                    argmax_logits_eq_gold=argmax_doc,
                 )
                 results.append(answer)
+                flat_index += len(doc.choices)
 
         return dataset.get_original_order(results)
 
