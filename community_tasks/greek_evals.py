@@ -37,8 +37,6 @@ from lighteval.metrics.metrics import Metrics
 from lighteval.metrics.metrics_sample import JudgeLLMMTBench
 from lighteval.metrics.normalizations import LogProbTokenNorm
 from lighteval.metrics.utils.metric_utils import (
-    MetricCategory,
-    MetricUseCase,
     SampleLevelMetric,
     SampleLevelMetricGrouping,
 )
@@ -64,7 +62,9 @@ from lighteval.tasks.extended.mt_bench.main import (
     process_judge_response,
 )
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
-from lighteval.tasks.requests import Doc
+from lighteval.tasks.requests import Doc, SamplingMethod
+from lighteval.utils.utils import remove_reasoning_tags
+from lighteval.models.model_output import ModelResponse
 
 
 # MMLU
@@ -186,7 +186,7 @@ class MMLUELTask(LightevalTaskConfig):
             few_shots_split="dev",
             few_shots_select="sequential",
             generation_size=1,
-            metric=[Metrics.loglikelihood_acc],
+            metrics=[Metrics.loglikelihood_acc],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -237,7 +237,7 @@ class ARCELTask(LightevalTaskConfig):
             few_shots_split=None,
             few_shots_select="random_sampling_from_train",
             generation_size=1,
-            metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+            metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -334,7 +334,7 @@ thruthfulqa_mc_el_task = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=-1,
-    metric=[Metrics.truthfulqa_mc_metrics],
+    metrics=[Metrics.truthfulqa_mc_metrics],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
@@ -352,7 +352,7 @@ thruthfulqa_gen_el_task = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=200,
-    metric=[Metrics.bleu],
+    metrics=[Metrics.bleu],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
@@ -485,7 +485,7 @@ greek_civics_qa_task = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=100,
-    metric=[Metrics.bleu],
+    metrics=[Metrics.bleu],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
@@ -516,7 +516,7 @@ hellaswag_el_task = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select="random_sampling_from_train",
     generation_size=-1,
-    metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
@@ -547,7 +547,7 @@ xnli_el_task = LightevalTaskConfig(
     few_shots_split="train",
     few_shots_select="sequential",
     generation_size=1,
-    metric=[loglikelihood_acc_metric(normalization=LogProbTokenNorm())],
+    metrics=[loglikelihood_acc_metric(normalization=LogProbTokenNorm())],
     stop_sequence=[],
     trust_dataset=True,
     version=0,
@@ -565,7 +565,7 @@ xnli_2_el_task = LightevalTaskConfig(
     few_shots_split="test",
     few_shots_select="sequential",
     generation_size=1,
-    metric=[loglikelihood_acc_metric(normalization=LogProbTokenNorm())],
+    metrics=[loglikelihood_acc_metric(normalization=LogProbTokenNorm())],
     stop_sequence=[],
     trust_dataset=True,
     version=0,
@@ -596,7 +596,7 @@ medical_mc_qa_el_task = LightevalTaskConfig(
     few_shots_split="validation",
     few_shots_select="sequential",
     generation_size=1,
-    metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+    metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
@@ -621,7 +621,7 @@ class BELEBELETask(LightevalTaskConfig):
             few_shots_split="test",
             few_shots_select="sequential",
             generation_size=1,
-            metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+            metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -698,7 +698,7 @@ class Flores200Task(LightevalTaskConfig):
             few_shots_split="dev",
             few_shots_select="sequential",
             generation_size=100,
-            metric=[Metrics.bleu],
+            metrics=[Metrics.bleu],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -758,7 +758,7 @@ class WMT24Task(LightevalTaskConfig):
             few_shots_split="train",
             few_shots_select="sequential",
             generation_size=100,
-            metric=[Metrics.bleu],
+            metrics=[Metrics.bleu],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -802,9 +802,9 @@ WMT24_TASKS = [
 # MGSM EL
 
 
-def parsed_answer_acc(predictions: list[str], formatted_doc: Doc, **kwargs) -> dict:
+def parsed_answer_acc(doc: Doc, model_response: ModelResponse, **kwargs) -> dict:
     number_regex = re.compile(r"(\-?(\d*[.,])*\d+)")
-    response = predictions[0]
+    response = model_response.text[0]
     parsed_response = ""
     try:
         for line in response.split("\n"):
@@ -814,14 +814,13 @@ def parsed_answer_acc(predictions: list[str], formatted_doc: Doc, **kwargs) -> d
                 parsed_response = all_numbers[-1][0]
     except Exception:
         pass
-    return parsed_response == formatted_doc.choices[formatted_doc.gold_index].strip()
+    return parsed_response == doc.choices[doc.gold_index].strip()
 
 
 mgsm_el_metric = SampleLevelMetric(
     metric_name="mgsm_el_parsed_exact_match",
     higher_is_better=True,
-    category=MetricCategory.GENERATIVE,
-    use_case=MetricUseCase.ACCURACY,
+    category=SamplingMethod.GENERATIVE,
     sample_level_fn=parsed_answer_acc,
     corpus_level_fn=np.mean,
 )
@@ -853,7 +852,7 @@ mgsm_el_task = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=250,
-    metric=[mgsm_el_metric],
+    metrics=[mgsm_el_metric],
     stop_sequence=[],
     trust_dataset=True,
     version=0,
@@ -880,8 +879,7 @@ def flow_judge_mt_bench_el_prompt_greek_judge(question, answer, options, gold):
 llm_judge_mt_bench_el = SampleLevelMetricGrouping(
     metric_name=["judge_score_turn_1", "judge_score_turn_2"],
     higher_is_better={"judge_score_turn_1": True, "judge_score_turn_2": True},
-    category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
-    use_case=MetricUseCase.SUMMARIZATION,
+    category=SamplingMethod.GENERATIVE,
     sample_level_fn=JudgeLLMMTBench(
         judge_model_name="openai/gpt-4o", # "openai/gpt-4o", "litellm_proxy/krikri-dpo", "flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt,
@@ -897,8 +895,7 @@ llm_judge_mt_bench_el = SampleLevelMetricGrouping(
 llm_judge_mt_bench_el_greek_judge = SampleLevelMetricGrouping(
     metric_name=["judge_score_turn_1", "judge_score_turn_2"],
     higher_is_better={"judge_score_turn_1": True, "judge_score_turn_2": True},
-    category=MetricCategory.LLM_AS_JUDGE_MULTI_TURN,
-    use_case=MetricUseCase.SUMMARIZATION,
+    category=SamplingMethod.GENERATIVE,
     sample_level_fn=JudgeLLMMTBench(
         judge_model_name="litellm_proxy/krikri-dpo", # "litellm_proxy/krikri-dpo" "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_el_prompt_greek_judge,
@@ -921,7 +918,7 @@ mt_bench_el_task = LightevalTaskConfig(
     evaluation_splits=["train"],
     few_shots_split="",
     few_shots_select="random",
-    metric=[llm_judge_mt_bench_el],
+    metrics=[llm_judge_mt_bench_el],
     generation_size=1024,
     stop_sequence=[],
 )
@@ -939,7 +936,7 @@ class MTBenchElTask(LightevalTaskConfig):
             evaluation_splits=["train"],
             few_shots_split="",
             few_shots_select="random",
-            metric=[metric_fn],
+            metrics=[metric_fn],
             generation_size=1024,
             stop_sequence=[],
             trust_dataset=True,
@@ -986,15 +983,20 @@ def cast_input(value):
 
     return value
 
+REASONING_TAG_PAIRS = [
+    ("<think>", "</think>"),
+]
 
 # retrieve IFEVAL metric to provide greek instruction heuristics
-def ifeval_metric(predictions: list[str], formatted_doc: Doc, **kwargs) -> dict:
-    response = predictions[0]
+def ifeval_metric(doc: Doc, model_response: ModelResponse, **kwargs) -> dict:
+    response = model_response.text[0]
+    # Remove the reasoning block to avoid false negatives: https://github.com/huggingface/lighteval/issues/790
+    response = remove_reasoning_tags(response, REASONING_TAG_PAIRS)
 
     # Strict instructions
-    instruction_list = formatted_doc.specific["instructions_id_list"]
-    all_kwargs = formatted_doc.specific["kwargs"]
-    prompt = formatted_doc.query
+    instruction_list = doc.specific["instructions_id_list"]
+    all_kwargs = doc.specific["kwargs"]
+    prompt = doc.query
 
     # Loose instructions
     r = response.split("\n")
@@ -1061,8 +1063,7 @@ def ifeval_metric(predictions: list[str], formatted_doc: Doc, **kwargs) -> dict:
 ifeval_metrics = SampleLevelMetricGrouping(
     metric_name=submetric_names,
     higher_is_better={n: True for n in submetric_names},
-    category=MetricCategory.GENERATIVE,
-    use_case=MetricUseCase.ACCURACY,
+    category=SamplingMethod.GENERATIVE,
     sample_level_fn=ifeval_metric,
     corpus_level_fn={
         "prompt_level_strict_acc": np.mean,
@@ -1071,14 +1072,14 @@ ifeval_metrics = SampleLevelMetricGrouping(
         "inst_level_loose_acc": agg_inst_level_acc,
     },
 )
-
+ 
 ifeval_el_task = LightevalTaskConfig(
     name="ifeval_el",
     prompt_function=ifeval_prompt,
     suite=["community"],
     hf_repo="ilsp/ifeval_greek",
     hf_subset="default",
-    metric=[ifeval_metrics],
+    metrics=[ifeval_metrics],
     hf_avail_splits=["train"],
     evaluation_splits=["train"],
     few_shots_split="train",
@@ -1223,16 +1224,15 @@ def extract_final(text):
         return None
 
 
-def parsed_mmlu_pro_answer_acc(predictions: list[str], formatted_doc: Doc, **kwargs) -> dict:
-    parsed_response = extract_answer(predictions[0])
-    return parsed_response == formatted_doc.choices[formatted_doc.gold_index].strip()
+def parsed_mmlu_pro_answer_acc(doc: Doc, model_response: ModelResponse, **kwargs) -> dict:
+    parsed_response = extract_answer(model_response.text[0])
+    return parsed_response == doc.choices[doc.gold_index].strip()
 
 
 mmlupro_el_metric = SampleLevelMetric(
     metric_name="mmlupro_el_accuracy",
     higher_is_better=True,
-    category=MetricCategory.GENERATIVE,
-    use_case=MetricUseCase.ACCURACY,
+    category=SamplingMethod.GENERATIVE,
     sample_level_fn=parsed_mmlu_pro_answer_acc,
     corpus_level_fn=np.mean,
 )
@@ -1257,7 +1257,7 @@ class MMLUProELTask(LightevalTaskConfig):
             few_shots_split="test",
             few_shots_select="random_sampling",
             generation_size=2048,
-            metric=[mmlupro_el_metric],
+            metrics=[mmlupro_el_metric],
             stop_sequence=[],  # no stop sequence, will use eot token
             trust_dataset=True,
             version=0,
@@ -1349,7 +1349,7 @@ class IncludeBase44Task(LightevalTaskConfig):
             few_shots_split="validation",
             few_shots_select="sequential",
             generation_size=1,
-            metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+            metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -1414,7 +1414,7 @@ class AMGTask(LightevalTaskConfig):
             few_shots_split=None,
             few_shots_select=None,
             generation_size=100,
-            metric=[Metrics.bleu],
+            metrics=[Metrics.bleu],
             stop_sequence=["\n"],
             trust_dataset=True,
             version=0,
@@ -1454,7 +1454,7 @@ mcqa_asep_el_task = LightevalTaskConfig(
     hf_avail_splits=["default"],
     evaluation_splits=["default"],
     generation_size=1,
-    metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+    metrics=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
     stop_sequence=["\n"],
     trust_dataset=True,
     version=0,
