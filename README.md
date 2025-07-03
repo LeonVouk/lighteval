@@ -21,7 +21,7 @@
 
 ---
 
-**Documentation**: <a href="https://huggingface.co/docs/lighteval/index" target="_blank">Lighteval's Wiki</a>
+**Documentation**: <a href="https://huggingface.co/docs/lighteval/main/en/index" target="_blank">HF's doc</a>
 
 ---
 
@@ -54,14 +54,10 @@ Hub, S3, or locally.
 
 ## ⚡️ Installation
 
-To pip install the current repo (Greek extension), you can either:
-
-`pip install lighteval[accelerate,extended_tasks,litellm]@git+https://github.com/LeonVouk/lighteval.git`
-
-or, for active development, clone the repository and install it locally:
+Note that lighteval is currently completely untested on Windows, and we don't support it yet. (Should be fully functional on Mac/Linux)
 
 ```bash
-pip install -e ".[accelerate,extended_tasks,litellm]"
+pip install lighteval
 ```
 
 Lighteval allows for many extras when installing, see [here](https://huggingface.co/docs/lighteval/installation) for a complete list.
@@ -75,7 +71,7 @@ huggingface-cli login
 
 ## 🚀 Quickstart
 
-Lighteval offers two main entry points for model evaluation:
+Lighteval offers the following entry points for model evaluation:
 
 - `lighteval accelerate` : evaluate models on CPU or one or more GPUs using [🤗
   Accelerate](https://github.com/huggingface/accelerate)
@@ -93,60 +89,8 @@ Here’s a quick command to evaluate using the Accelerate backend:
 
 ```shell
 lighteval accelerate \
-    "pretrained=gpt2" \
-    "leaderboard|truthfulqa:mc|0|0" \
-    --override-batch-size 1 \
-    --output-dir="./evals/"
-```
-
-### OpenAI and LiteLLM-proxy requests
-
-To evaluate an OpenAI model, e.g., `gpt-3.5-turbo`, make sure you've added a working `OPENAI_API_KEY` to your env and run:
-
-```shell
-lighteval endpoint openai \
-      "gpt-3.5-turbo" \
-      "community|mmlu_pro_cot_el|0|0" \
-      --output-dir="./evals/" \
-      --custom-tasks "./community_tasks/greek_evals.py" \
-      --save-details \
-      --max-samples 10
-```
-
-You can optionally add the `--max-samples 10` flag for quick testing. This will limit the run to only 10 benchmark rows.
-
-To evaluate a non-GPT API, e.g., Meltemi:
-
-```shell
-export OPENAI_API_KEY="<Meltemi-API-key>"
-
-lighteval endpoint openai \
-  "meltemi" \
-  "community|mmlu_pro_cot_el|0|0" \
-  --base-url="http://ec2-3-19-37-251.us-east-2.compute.amazonaws.com:4000" \
-  --tokenizer="ilsp/Meltemi-7B-Instruct-v1.5" \
-  --max-samples 10 \
-  --output-dir="./evals/" \
-  --custom-tasks "./community_tasks/greek_evals.py" \
-  --use-chat-template \
-  --save-details
-```
-
-### HF model requests
-
-If you don't have an existing LLM deployment, you can simply provide the [HuggingFace](https://huggingface.co/) id (e.g., `ilsp/Meltemi-7B-Instruct-v1.5`).
-
-```shell
-export ID="ilsp/Meltemi-7B-Instruct-v1.5"
-export EVAL_OUTPUTS_PATH="/path/to/eval/outputs"
-
-accelerate launch --multi_gpu --num_processes=4 run_evals_accelerate.py \
-      --model-args="pretrained=${ID},model_parallel=True" \
-      --tasks examples/tasks/extended_eval_greek_tasks.txt \
-      --custom-tasks "community_tasks/greek_evals.py" \
-      --override-batch-size 1 \
-      --output-dir="${EVAL_OUTPUTS_PATH}" \
-      --save-details
+    "model_name=gpt2" \
+    "leaderboard|truthfulqa:mc|0|0"
 ```
 
 ## 🙏 Acknowledgements
@@ -181,10 +125,10 @@ pre-commit run --all-files
 
 ```bibtex
 @misc{lighteval,
-  author = {Fourrier, Clémentine and Habib, Nathan and Kydlíček, Hynek and Wolf, Thomas and Tunstall, Lewis},
+  author = {Habib, Nathan and Fourrier, Clémentine and Kydlíček, Hynek and Wolf, Thomas and Tunstall, Lewis},
   title = {LightEval: A lightweight framework for LLM evaluation},
   year = {2023},
-  version = {0.7.0},
+  version = {0.8.0},
   url = {https://github.com/huggingface/lighteval}
 }
 ```

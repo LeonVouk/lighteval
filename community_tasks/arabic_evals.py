@@ -26,16 +26,16 @@ Custom evaluation tasks for lighteval
 
 This file generally creates just a TASKS_TABLE and TASKS_GROUPS which are then imported by LightEval.
 """
+
 import random
 import re
 from typing import Any, Dict, List, Optional, Union
 
 from lighteval.metrics.llm_as_judge import JudgeLM
-from lighteval.metrics.metrics import Metric, MetricCategory, Metrics
-from lighteval.metrics.utils.metric_utils import MetricUseCase
+from lighteval.metrics.metrics import Metric, Metrics
 from lighteval.tasks.default_prompts import LETTER_INDICES
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
-from lighteval.tasks.requests import Doc
+from lighteval.tasks.requests import Doc, SamplingMethod
 
 
 # fmt: off
@@ -103,7 +103,7 @@ class CustomArabicMMLUTask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=arabic_mmlu_pfn,
             hf_repo="MBZUAI/ArabicMMLU",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test"],
             evaluation_splits=["test"],
             few_shots_split=["dev"],
@@ -165,7 +165,7 @@ class CustomArabicMMLUHTTask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=arabic_mmlu_ht_pfn,
             hf_repo="MBZUAI/human_translated_arabic_mmlu",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test"],
             evaluation_splits=["test"],
             few_shots_split=None,
@@ -230,7 +230,7 @@ class CustomArabicMMLUMTTask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=arabic_mmlu_mt_pfn,
             hf_repo="OALL/Arabic_MMLU",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test", "dev"],
             evaluation_splits=["test"],
             few_shots_split="dev",
@@ -286,7 +286,7 @@ class CustomACVATask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=acva_pfn,
             hf_repo="OALL/ACVA",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test", "validation"],
             evaluation_splits=["test"],
             few_shots_split="validation",
@@ -343,16 +343,14 @@ class CustomAraTrustTask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=aratrust_pfn,
             hf_repo="asas-ai/AraTrust-categorized",
-            metric=[
-                Metrics.f1_score
-            ],  # Following the paper (AraTrust: An Evaluation of Trustworthiness for LLMs in Arabic)[https://arxiv.org/abs/2403.09017]
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["train"],
             evaluation_splits=["train"],
             few_shots_split=None,
             few_shots_select=None,
             suite=["community"],
             generation_size=-1,
-            stop_sequence=[],
+            stop_sequence=None,
             trust_dataset=True,
             version=0,
         )
@@ -394,7 +392,7 @@ arabic_exams_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -414,12 +412,15 @@ def alghafa_pfn(line, task_name: str = None):
     question = line["query"]
     answer_index = int(line["label"])
     allowed_keys = [f"sol{i}" for i in range(1, 6)]
-    choices = [line[key] for key in allowed_keys if key in line]
+    extracted_choices = [line[key] for key in allowed_keys if key in line]
+    choices = [str(i) for i in range(len(extracted_choices))]
 
     instruction = "الأسئلة التالية هي أسئلة متعددة الإختيارات مع الجواب الصحيح\n\n"
     query = f"{instruction}السؤال: {question}\n"
-    for index, choice in enumerate(choices):
+
+    for index, choice in enumerate(extracted_choices):
         query += f"{index}) {choice}\n"
+
     query += "الإجابة:"
 
     return Doc(
@@ -442,7 +443,7 @@ class CustomAlGhafaNativeTask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=alghafa_pfn,
             hf_repo="OALL/AlGhafa-Arabic-LLM-Benchmark-Native",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test", "validation"],
             evaluation_splits=["test"],
             few_shots_split="validation",
@@ -469,7 +470,7 @@ race_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -486,7 +487,7 @@ piqa_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -503,7 +504,7 @@ arc_easy_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -520,7 +521,7 @@ arc_challenge_okapi_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -537,7 +538,7 @@ mmlu_okapi_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -554,7 +555,7 @@ openbook_qa_ext_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -592,7 +593,7 @@ boolq_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -627,7 +628,7 @@ copa_ext_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -671,7 +672,7 @@ hellaswag_okapi_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -708,7 +709,7 @@ toxigen_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -759,7 +760,7 @@ sciq_ar_task = LightevalTaskConfig(
     evaluation_splits=["test"],
     few_shots_split="validation",
     few_shots_select="sequential",
-    metric=[Metrics.loglikelihood_acc_norm],
+    metrics=[Metrics.loglikelihood_acc_norm],
     trust_dataset=True,
     version=0,
 )
@@ -772,7 +773,7 @@ MADINAH_QA_SUBSETS = ["Arabic Language (General)", "Arabic Language (Grammar)"]
 
 
 def madinah_qa_pfn(line, task_name: str = None):
-    instruction = "السؤال التالي هو سؤال متعدد الإختيارات. اختر الإجابة الصحيحة:\n\n"
+    instruction = "بناءً على السياق أدناه، اختر الإجابة الصحيحة للسؤال التالي من قائمة الأجوبة:\n\n"
 
     # Define the mapping from Latin to Arabic letters
     latin_to_arabic = {"A": "أ", "B": "ب", "C": "ج", "D": "د", "E": "هـ"}
@@ -793,14 +794,14 @@ def madinah_qa_pfn(line, task_name: str = None):
     # Find the correct index for the answer key in the Arabic version
     answer_index = valid_keys_latin.index(line["Answer Key"])
 
-    query = f"{instruction}{line['Question']}\n"
+    query = f"{instruction}\nالسياق:\n{line['Context']}\nالسؤال:\n{line['Question']}\n"
     query += "".join([f"{key}. {choice}\n" for key, choice in zip(valid_keys_arabic, choices)])
     query += "الإجابة:"
 
     return Doc(
         task_name=task_name,
         query=query,
-        choices=choices,
+        choices=valid_keys_arabic,
         gold_index=answer_index,  # Correct index in the valid keys
         instruction=instruction,
     )
@@ -817,7 +818,7 @@ class CustomMadinahQATask(LightevalTaskConfig):
             hf_subset=hf_subset,
             prompt_function=madinah_qa_pfn,
             hf_repo="MBZUAI/MadinahQA",
-            metric=[Metrics.loglikelihood_acc_norm],
+            metrics=[Metrics.loglikelihood_acc_norm],
             hf_avail_splits=["test"],
             evaluation_splits=["test"],
             few_shots_split=["dev"],
@@ -847,11 +848,10 @@ class JudgeMetricWrapper(Metric):
         """
         self.judge = judge
         self.metric_name = "llm_as_judge"
-        self.category = MetricCategory.LLM_AS_JUDGE
+        self.category = SamplingMethod.GENERATIVE
         self.corpus_level_fn = self.aggregate_scores
         self.sample_level_fn = self._sample_level_fn
         self.higher_is_better = True  # Fixed tuple syntax
-        self.use_case = MetricUseCase.NONE
 
     def compute(self, responses: list[str], formatted_docs: list[Doc], **kwargs) -> dict[str, float]:
         """
@@ -1037,7 +1037,7 @@ alrage_qa_task = LightevalTaskConfig(
     hf_subset=None,
     hf_avail_splits=["train"],
     evaluation_splits=["train"],
-    metric=[wrapped_judge],
+    metrics=[wrapped_judge],
     trust_dataset=True,
     generation_size=200,
     stop_sequence=[],
