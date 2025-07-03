@@ -206,8 +206,7 @@ class VLLMModel(LightevalModel):
     def cleanup(self):
         destroy_model_parallel()
         if self.model is not None:
-            del self.model.llm_engine.model_executor.driver_worker
-        self.model = None
+            del self.model
         gc.collect()
         ray.shutdown()
         destroy_distributed_environment()
@@ -376,222 +375,222 @@ class VLLMModel(LightevalModel):
         return dataset.get_original_order(results)
 
     # TODO check
-    def greedy_until_multi_turn(
-        self,
-        requests: list[GreedyUntilRequest],
-        override_bs: Optional[int] = None,
-    ) -> list[GenerativeResponse]:
-        """
-        Generates responses using a greedy decoding strategy until certain ending conditions are met.
+    # def greedy_until_multi_turn(
+    #     self,
+    #     requests: list[GreedyUntilRequest],
+    #     override_bs: Optional[int] = None,
+    # ) -> list[GenerativeResponse]:
+    #     """
+    #     Generates responses using a greedy decoding strategy until certain ending conditions are met.
 
-        Args:
-            requests (list[Request]): list of requests containing the context and ending conditions.
-            override_bs (int, optional): Override the batch size for generation. Defaults to None.
+    #     Args:
+    #         requests (list[Request]): list of requests containing the context and ending conditions.
+    #         override_bs (int, optional): Override the batch size for generation. Defaults to None.
 
-        Returns:
-            list[GenerateReturn]: list of generated responses.
-        """
-        for request in requests:
-            request.stop_sequence = as_list(request.stop_sequence) + [self.tokenizer.eos_token]
-            request.tokenized_context = self.tok_encode(request.context)
+    #     Returns:
+    #         list[GenerateReturn]: list of generated responses.
+    #     """
+    #     for request in requests:
+    #         request.stop_sequence = as_list(request.stop_sequence) + [self.tokenizer.eos_token]
+    #         request.tokenized_context = self.tok_encode(request.context)
 
-        dataset = GenerativeTaskDataset(requests=requests, num_dataset_splits=self.DATASET_SPLITS)
-        results = []
+    #     dataset = GenerativeTaskDataset(requests=requests, num_dataset_splits=self.DATASET_SPLITS)
+    #     results = []
 
-        # TODO change
-        MT_BENCH_CATEGORY_0_7_TEMP = {
-            "writing": 0.7,
-            "roleplay": 0.7
-        }
+    #     # TODO change
+    #     MT_BENCH_CATEGORY_0_7_TEMP = {
+    #         "writing": 0.7,
+    #         "roleplay": 0.7
+    #     }
 
-        MT_BENCH_CATEGORY_0_1_TEMP = {
-            "stem": 0.1,
-            "humanities": 0.1,
-        }
+    #     MT_BENCH_CATEGORY_0_1_TEMP = {
+    #         "stem": 0.1,
+    #         "humanities": 0.1,
+    #     }
 
-        MT_BENCH_CATEGORY_0_0_TEMP = {
-            "extraction": 0.0,
-            "math": 0.0,
-            "coding": 0.0,
-            "reasoning": 0.0,
-            "arena-hard-200": 0.0,
-        }
+    #     MT_BENCH_CATEGORY_0_0_TEMP = {
+    #         "extraction": 0.0,
+    #         "math": 0.0,
+    #         "coding": 0.0,
+    #         "reasoning": 0.0,
+    #         "arena-hard-200": 0.0,
+    #     }
 
-        for _ in tqdm(
-            dataset.splits_start_end_iterator(),
-            total=dataset.num_dataset_splits,
-            desc="Splits",
-            position=0,
-            disable=False,  # self.disable_tqdm,
-        ):
-            # For chat models, generation stops with EOS token, so we don't need to specify stop tokens
-            if self.use_chat_template:
-                stop_tokens = []
-            else:
-                # NOTE: we are assuming all items in a batch behave similarly (same
-                # stop_tokens and max_tokens genrated) which is not necessarily
-                # the case! Because of that we only use batch size of 1
-                stop_tokens = dataset[0].stop_sequence
+    #     for _ in tqdm(
+    #         dataset.splits_start_end_iterator(),
+    #         total=dataset.num_dataset_splits,
+    #         desc="Splits",
+    #         position=0,
+    #         disable=False,  # self.disable_tqdm,
+    #     ):
+    #         # For chat models, generation stops with EOS token, so we don't need to specify stop tokens
+    #         if self.use_chat_template:
+    #             stop_tokens = []
+    #         else:
+    #             # NOTE: we are assuming all items in a batch behave similarly (same
+    #             # stop_tokens and max_tokens genrated) which is not necessarily
+    #             # the case! Because of that we only use batch size of 1
+    #             stop_tokens = dataset[0].stop_sequence
 
-            max_new_tokens = dataset[0].generation_size  # could be none
-            returns_logits = dataset[0].use_logits
-            num_samples = 1
+    #         max_new_tokens = dataset[0].generation_size  # could be none
+    #         returns_logits = dataset[0].use_logits
+    #         num_samples = 1
 
-            # TODO make this human
-            original_ds_order = [request for request in dataset]
-            local_results = [None] * len(original_ds_order)
-            groups = [
-                ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_7_TEMP], 0.7),
-                ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_1_TEMP], 0.1),
-                ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_0_TEMP], 0.0)
-            ]
+    #         # TODO make this human
+    #         original_ds_order = [request for request in dataset]
+    #         local_results = [None] * len(original_ds_order)
+    #         groups = [
+    #             ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_7_TEMP], 0.7),
+    #             ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_1_TEMP], 0.1),
+    #             ([(n, request) for n, request in enumerate(original_ds_order) if request.category in MT_BENCH_CATEGORY_0_0_TEMP], 0.0)
+    #         ]
 
-            for group, temp in groups:
-                order = [t[0] for t in group]
-                context_first_turn = [t[1].context[0] for t in group]
-                context_second_turn = [t[1].context[1] for t in group]
+    #         for group, temp in groups:
+    #             order = [t[0] for t in group]
+    #             context_first_turn = [t[1].context[0] for t in group]
+    #             context_second_turn = [t[1].context[1] for t in group]
 
-                ###
-                # context_next_turns = [t[1].context[1:] for t in group]
+    #             ###
+    #             # context_next_turns = [t[1].context[1:] for t in group]
 
-                # Set sampling params
-                self.sampling_params.temperature = temp
-                self.sampling_params.top_p = 0.9
-                self.sampling_params.max_tokens = max_new_tokens
+    #             # Set sampling params
+    #             self.sampling_params.temperature = temp
+    #             self.sampling_params.top_p = 0.9
+    #             self.sampling_params.max_tokens = max_new_tokens
 
-                tokenized = self.tokenizer(context_first_turn, add_special_tokens=self.add_special_tokens)
+    #             tokenized = self.tokenizer(context_first_turn, add_special_tokens=self.add_special_tokens)
 
-                # The main question for this step is the following:
-                # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
-                # of losing some meaning, or have some generations that are exceedingly short?
-                # The choice we go for here is to avoid truncating the prompt if we can, since it
-                # should have been managed by the prompt creator/few shot manager if requested by the user.
-                inputs = tokenized["input_ids"]
-                context_size = len(inputs[0])
+    #             # The main question for this step is the following:
+    #             # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
+    #             # of losing some meaning, or have some generations that are exceedingly short?
+    #             # The choice we go for here is to avoid truncating the prompt if we can, since it
+    #             # should have been managed by the prompt creator/few shot manager if requested by the user.
+    #             inputs = tokenized["input_ids"]
+    #             context_size = len(inputs[0])
 
-                # left truncate the inputs to the maximum length
-                if max_new_tokens is not None:
-                    if context_size + max_new_tokens > self.max_length:
-                        logger.warning(
-                            f"{context_size + max_new_tokens=} which is greather than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
-                        )
-                        context_size = self.max_length - max_new_tokens
-                        if context_size < 0:
-                            logger.critical(
-                                f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
-                            )
-                            raise ValueError("Context size is less than 0.")
-                        inputs = [input[-context_size:] for input in inputs]
-                else:
-                    if context_size > self.max_length:
-                        logger.warning(
-                            f"{context_size=} which is greather than {self.max_length=}. Truncating context to {self.max_length} tokens."
-                        )
-                        context_size = self.max_length
-                        inputs = [input[-context_size:] for input in inputs]
+    #             # left truncate the inputs to the maximum length
+    #             if max_new_tokens is not None:
+    #                 if context_size + max_new_tokens > self.max_length:
+    #                     logger.warning(
+    #                         f"{context_size + max_new_tokens=} which is greather than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
+    #                     )
+    #                     context_size = self.max_length - max_new_tokens
+    #                     if context_size < 0:
+    #                         logger.critical(
+    #                             f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
+    #                         )
+    #                         raise ValueError("Context size is less than 0.")
+    #                     inputs = [input[-context_size:] for input in inputs]
+    #             else:
+    #                 if context_size > self.max_length:
+    #                     logger.warning(
+    #                         f"{context_size=} which is greather than {self.max_length=}. Truncating context to {self.max_length} tokens."
+    #                     )
+    #                     context_size = self.max_length
+    #                     inputs = [input[-context_size:] for input in inputs]
 
-                vllm_outputs = self._generate(
-                    inputs=inputs,
-                    max_new_tokens=max_new_tokens,
-                    stop_tokens=stop_tokens,
-                    returns_logits=returns_logits,
-                    num_samples=num_samples,
-                )
+    #             vllm_outputs = self._generate(
+    #                 inputs=inputs,
+    #                 max_new_tokens=max_new_tokens,
+    #                 stop_tokens=stop_tokens,
+    #                 returns_logits=returns_logits,
+    #                 num_samples=num_samples,
+    #             )
 
-                model_generations = []
-                all_logprobs = []
-                first_round_results = []
-                input_tokens = []
-                for n,vllm_output in enumerate(vllm_outputs):
-                    output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
-                    model_generations.append(list(output_token_ids))
-                    logprobs = [output.logprobs for output in vllm_output.outputs] or []
-                    logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
-                    all_logprobs.append(logprobs)
-                    result = [output.text for output in vllm_output.outputs][0]
-                    for term in stop_tokens:
-                        result = result.split(term)[0]
-                    first_round_results.append(result)
-                    input_tokens.append(vllm_output.prompt_token_ids)
+    #             model_generations = []
+    #             all_logprobs = []
+    #             first_round_results = []
+    #             input_tokens = []
+    #             for n,vllm_output in enumerate(vllm_outputs):
+    #                 output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
+    #                 model_generations.append(list(output_token_ids))
+    #                 logprobs = [output.logprobs for output in vllm_output.outputs] or []
+    #                 logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
+    #                 all_logprobs.append(logprobs)
+    #                 result = [output.text for output in vllm_output.outputs][0]
+    #                 for term in stop_tokens:
+    #                     result = result.split(term)[0]
+    #                 first_round_results.append(result)
+    #                 input_tokens.append(vllm_output.prompt_token_ids)
 
-                ###
-                # max_turns = max([len(c) for c in context_next_turns])
-                # for turn in range(max_turns):
-                #     context_current_turn = []
-                #     pass
+    #             ###
+    #             # max_turns = max([len(c) for c in context_next_turns])
+    #             # for turn in range(max_turns):
+    #             #     context_current_turn = []
+    #             #     pass
 
 
-                # TODO fix to be actual multiturn
-                context_second_turn = [c.format(model_response=d_g) for c, d_g in zip(context_second_turn, first_round_results)]
+    #             # TODO fix to be actual multiturn
+    #             context_second_turn = [c.format(model_response=d_g) for c, d_g in zip(context_second_turn, first_round_results)]
 
-                tokenized = self.tokenizer(context_second_turn, add_special_tokens=self.add_special_tokens)
+    #             tokenized = self.tokenizer(context_second_turn, add_special_tokens=self.add_special_tokens)
 
-                # The main question for this step is the following:
-                # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
-                # of losing some meaning, or have some generations that are exceedingly short?
-                # The choice we go for here is to avoid truncating the prompt if we can, since it
-                # should have been managed by the prompt creator/few shot manager if requested by the user.
-                inputs = tokenized["input_ids"]
-                context_size = len(inputs[0])
+    #             # The main question for this step is the following:
+    #             # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
+    #             # of losing some meaning, or have some generations that are exceedingly short?
+    #             # The choice we go for here is to avoid truncating the prompt if we can, since it
+    #             # should have been managed by the prompt creator/few shot manager if requested by the user.
+    #             inputs = tokenized["input_ids"]
+    #             context_size = len(inputs[0])
 
-                # left truncate the inputs to the maximum length
-                if max_new_tokens is not None:
-                    if context_size + max_new_tokens > self.max_length:
-                        logger.warning(
-                            f"{context_size + max_new_tokens=} which is greather than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
-                        )
-                        context_size = self.max_length - max_new_tokens
-                        if context_size < 0:
-                            logger.critical(
-                                f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
-                            )
-                            raise ValueError("Context size is less than 0.")
-                        inputs = [input[-context_size:] for input in inputs]
-                else:
-                    if context_size > self.max_length:
-                        logger.warning(
-                            f"{context_size=} which is greather than {self.max_length=}. Truncating context to {self.max_length} tokens."
-                        )
-                        context_size = self.max_length
-                        inputs = [input[-context_size:] for input in inputs]
+    #             # left truncate the inputs to the maximum length
+    #             if max_new_tokens is not None:
+    #                 if context_size + max_new_tokens > self.max_length:
+    #                     logger.warning(
+    #                         f"{context_size + max_new_tokens=} which is greather than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
+    #                     )
+    #                     context_size = self.max_length - max_new_tokens
+    #                     if context_size < 0:
+    #                         logger.critical(
+    #                             f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
+    #                         )
+    #                         raise ValueError("Context size is less than 0.")
+    #                     inputs = [input[-context_size:] for input in inputs]
+    #             else:
+    #                 if context_size > self.max_length:
+    #                     logger.warning(
+    #                         f"{context_size=} which is greather than {self.max_length=}. Truncating context to {self.max_length} tokens."
+    #                     )
+    #                     context_size = self.max_length
+    #                     inputs = [input[-context_size:] for input in inputs]
 
-                vllm_outputs = self._generate(
-                    inputs=inputs,
-                    max_new_tokens=max_new_tokens,
-                    stop_tokens=stop_tokens,
-                    returns_logits=returns_logits,
-                    num_samples=num_samples,
-                )
+    #             vllm_outputs = self._generate(
+    #                 inputs=inputs,
+    #                 max_new_tokens=max_new_tokens,
+    #                 stop_tokens=stop_tokens,
+    #                 returns_logits=returns_logits,
+    #                 num_samples=num_samples,
+    #             )
 
-                model_generations_2nd = []
-                all_logprobs_2nd = []
-                second_round_results = []
-                input_tokens_2nd = []
+    #             model_generations_2nd = []
+    #             all_logprobs_2nd = []
+    #             second_round_results = []
+    #             input_tokens_2nd = []
 
-                for n,vllm_output in enumerate(vllm_outputs):
-                    output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
-                    model_generations_2nd.append(list(output_token_ids))
-                    logprobs = [output.logprobs for output in vllm_output.outputs] or []
-                    logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
-                    all_logprobs_2nd.append(logprobs)
-                    result = [output.text for output in vllm_output.outputs][0]
-                    for term in stop_tokens:
-                        result = result.split(term)[0]
-                    second_round_results.append(result)
-                    input_tokens_2nd.append(vllm_output.prompt_token_ids)
+    #             for n,vllm_output in enumerate(vllm_outputs):
+    #                 output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
+    #                 model_generations_2nd.append(list(output_token_ids))
+    #                 logprobs = [output.logprobs for output in vllm_output.outputs] or []
+    #                 logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
+    #                 all_logprobs_2nd.append(logprobs)
+    #                 result = [output.text for output in vllm_output.outputs][0]
+    #                 for term in stop_tokens:
+    #                     result = result.split(term)[0]
+    #                 second_round_results.append(result)
+    #                 input_tokens_2nd.append(vllm_output.prompt_token_ids)
 
-                # This has to change, just matching the rest of the lighteval GenerativeMultiturnResponse implementations for now
-                for answers in zip(order, input_tokens, first_round_results, input_tokens_2nd, second_round_results):
-                    local_results[answers[0]] = GenerativeMultiturnResponse(
-                            result=(answers[2], answers[4]),
-                            input_tokens=[torch.tensor(answers[1]).view(-1, len(answers[1])), torch.tensor(answers[3]).view(-1, len(answers[3]))],
-                            generated_tokens=[],
-                            truncated_tokens_count=0,
-                            padded_tokens_count=0,
-                        )
-            results.extend(local_results)
+    #             # This has to change, just matching the rest of the lighteval GenerativeMultiturnResponse implementations for now
+    #             for answers in zip(order, input_tokens, first_round_results, input_tokens_2nd, second_round_results):
+    #                 local_results[answers[0]] = GenerativeMultiturnResponse(
+    #                         result=(answers[2], answers[4]),
+    #                         input_tokens=[torch.tensor(answers[1]).view(-1, len(answers[1])), torch.tensor(answers[3]).view(-1, len(answers[3]))],
+    #                         generated_tokens=[],
+    #                         truncated_tokens_count=0,
+    #                         padded_tokens_count=0,
+    #                     )
+    #         results.extend(local_results)
 
-        return results
+    #     return results
 
 
     def _generate(
