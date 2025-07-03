@@ -21,33 +21,29 @@
 # SOFTWARE.
 
 
-def original_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold):
+def original_judge_prompt_mt_bench_el_without_ref(questions, options, answers, golds):
     return [
         {
             "role": "user",
             "content": f"""# GOAL
-Your job is to evaluate a task carried out by an AI system powered by a large \
-language model.
+Your job is to act as an impartial judge and to evaluate the quality of the response provided by an AI assistant to the user question.
 
-You will be provided with the inputs and output of the task in the Greek language, as well as the evaluation criteria. \
-Your task is to evaluate the output of the AI system based on the evaluation criteria.
 
-# INPUT
-Below are the inputs required for performing the task:
-<inputs>
-{question}
-</inputs>
+You will be provided with the whole conversation in the Greek language, as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria. \
+Your evaluation should focus on the assistant's answer to the second user question.
 
-# OUTPUT
-Below is the output of the task:
-<output>
-{answer}
-</output>
+<|The Start of Assistant A's Conversation with User|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Assistant A:\n{answers[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Assistant A:\n{answers[1]}\n\n\
+<|The End of Assistant A's Conversation with User|>
 
 # EVALUATION CRITERIA
-Here are the evaluation criteria that you need to use for evaluating the task. \
 All evaluation criteria should consider the fact that both the input and the response answer \
-are in Greek and should be evaluated based on their score in Greek:
+are in Greek and should be evaluated based on their score in Greek. \
+Here are the evaluation criteria that you need to use for evaluating the task. \
 <evaluation_criteria>
 Your evaluation should consider factors such as the helpfulness, relevance, accuracy, depth, creativity, and level of detail of the response.
 </evaluation_criteria>
@@ -62,37 +58,36 @@ Please accurately evaluate the task. Strictly adhere to the evaluation criteria.
     ]
 
 
-def original_judge_prompt_mt_bench_el_with_ref(question, options, answer, gold):
+def original_judge_prompt_mt_bench_el_with_ref(questions, options, answers, golds):
     return [
         {
             "role": "user",
             "content": f"""# GOAL
-Your job is to evaluate a task carried out by an AI system powered by a large \
-language model.
+Your job is to act as an impartial judge and to evaluate the quality of the response provided by an AI assistant to the user question.
 
-You will be provided with the inputs and output of the task in the Greek language, \
-as well as the evaluation criteria. \
-Your task is to evaluate the output of the AI system based on the evaluation criteria provided.
+You will be provided with the inputs and output of the task in the Greek language, as well as the evaluation criteria. \
+Your task is to evaluate the output of the AI system based on the evaluation criteria. \
+Your evaluation should focus on the assistant's answer to the second user question.
 
-# INPUT
-Below are the inputs required for performing the task:
-<inputs>
-{question}
-</inputs>
-
-# OUTPUT
-Below is the output of the task:
-<output>
-{answer}
-</output>
+<|The Start of Assistant A's Conversation with User|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Assistant A:\n{answers[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Assistant A:\n{answers[1]}\n\n\
+<|The End of Assistant A's Conversation with User|>
 
 # EVALUATION CRITERIA
-Here are the evaluation criteria that you need to use for evaluating the task. \
 All evaluation criteria should consider the fact that the input, response answer and \
-reference answer are all in Greek and should be evaluated based on their score in Greek:
+reference answer are all in Greek and should be evaluated based on their score in Greek. \
+Here are the evaluation criteria that you need to use for evaluating the task:
 <evaluation_criteria>
 How well the response answers the question, the reference answer is:
-{gold}
+<|The Start of Reference Answer|>\n\n\
+### User:\n{questions[0]}\n\n\
+### Reference answer:\n{golds[0]}\n\n\
+### User:\n{questions[1]}\n\n\
+### Reference answer:\n{golds[1]}\n\n\
+<|The End of Reference Answer|>
 </evaluation_criteria>
 
 # INSTRUCTIONS FOR THE EVALUATION

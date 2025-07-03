@@ -1433,6 +1433,33 @@ AMG_TASKS = [
 ]
 
 
+# MCQA_ASEP
+
+def mcqa_asep_prompt_el(line, task_name: str = None):
+    mcs = "\n".join(line["choices"])
+    return Doc(
+        task_name=task_name,
+        query=f"Ερώτηση: {line['question']}\n\nΕπιλογές:\n{mcs}\n\nΑπάντηση:",
+        choices=[f" {c}" for c in line["choices"]],
+        gold_index=line["answer"],
+    )
+
+
+mcqa_asep_el_task = LightevalTaskConfig(
+    name="mcqa_asep",
+    suite=["community"],
+    prompt_function=mcqa_asep_prompt_el,
+    hf_repo="ilsp/mcqa_greek_asep",
+    hf_subset="default",
+    hf_avail_splits=["default"],
+    evaluation_splits=["default"],
+    generation_size=1,
+    metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+    stop_sequence=["\n"],
+    trust_dataset=True,
+    version=0,
+)
+
 _TASKS = (
     MMLU_EL_TASKS
     + ARC_EL_TASKS
@@ -1451,6 +1478,7 @@ _TASKS = (
     + [greek_civics_qa_task]
     + [mgsm_el_task]
     + [ifeval_el_task]
+    + [mcqa_asep_el_task]
 )
 
 # TODO test the ones in the commented out _TASKS that are not in the new one
