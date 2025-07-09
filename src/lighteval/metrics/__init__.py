@@ -45,13 +45,12 @@ def apply_metric(responses: list[ModelResponse], docs: list[Doc], metrics: list[
         else:
             for model_response, doc in zip(responses, docs):
                 output = {}
-                for metric in metrics:
-                    output.update(
-                        metric.compute(
-                            model_response=model_response,
-                            doc=doc,
-                        )
+                output.update(
+                    metric.compute(
+                        model_response=model_response,
+                        docs=doc,
                     )
+                )
                 outputs.append(output)
 
     return outputs

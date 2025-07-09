@@ -1,0 +1,19 @@
+### IFEVAL
+# community|ifeval_el|0|0
+# extended|ifeval|0|0
+# WMT 24
+# community|wmt24:el->en|5|0
+# community|wmt24:en->el|5|0
+# AMG
+# community|amg:grc->ell|0|0
+# community|amg:ell->grc|0|0
+### GSM8K
+# leaderboard|gsm8k|5|0
+### MGSM
+# community|mgsm:el|5|0
+### MT-Bench
+community|mt_bench_el:default|0|0
+# extended|mt_bench|0|0
+### MMLU PRO greek (run mmlu-pro english from their repo)
+# community|mmlu_pro_el|0|0
+# community|mmlu_pro_cot_el|0|0

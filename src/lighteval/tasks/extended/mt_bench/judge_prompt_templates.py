@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 
-def original_judge_prompt_mt_bench_without_ref(questions: list[list[str]], options: list[list[str]], answers: list[list[str]], golds: list[list[str]]):
+def original_judge_prompt_mt_bench_without_ref(question: list[list[str]], options: list[list[str]], answer: list[list[str]], gold: list[list[str]]):
     return [
         {
             "role": "user",
@@ -34,10 +34,10 @@ Your evaluation should focus on the assistant's answer to the second user questi
 
 
 <|The Start of Assistant A's Conversation with User|>\n\n\
-### User:\n{questions[0]}\n\n\
-### Assistant A:\n{answers[0]}\n\n\
-### User:\n{questions[1]}\n\n\
-### Assistant A:\n{answers[1]}\n\n\
+### User:\n{question[0]}\n\n\
+### Assistant A:\n{answer[0]}\n\n\
+### User:\n{question[1]}\n\n\
+### Assistant A:\n{answer[1]}\n\n\
 <|The End of Assistant A's Conversation with User|>
 
 # EVALUATION CRITERIA
@@ -56,7 +56,7 @@ Please accurately evaluate the task. Strictly adhere to the evaluation criteria.
     ]
 
 
-def original_judge_prompt_mt_bench_with_ref(questions: list[list[str]], options: list[list[str]], answers: list[list[str]], golds: list[list[str]]):
+def original_judge_prompt_mt_bench_with_ref(question: list[list[str]], options: list[list[str]], answer: list[list[str]], gold: list[list[str]]):
     return [
         {
             "role": "user",
@@ -69,10 +69,10 @@ Your evaluation should focus on the assistant's answer to the second user questi
 
 
 <|The Start of Assistant A's Conversation with User|>\n\n\
-### User:\n{questions[0]}\n\n\
-### Assistant A:\n{answers[0]}\n\n\
-### User:\n{questions[1]}\n\n\
-### Assistant A:\n{answers[1]}\n\n\
+### User:\n{question[0]}\n\n\
+### Assistant A:\n{answer[0]}\n\n\
+### User:\n{question[1]}\n\n\
+### Assistant A:\n{answer[1]}\n\n\
 <|The End of Assistant A's Conversation with User|>
 
 
@@ -81,10 +81,10 @@ Here are the evaluation criteria that you need to use for evaluating the task:
 <evaluation_criteria>
 How well the response answers the question, the reference answer is:
 <|The Start of Reference Answer|>\n\n\
-### User:\n{questions[0]}\n\n\
-### Reference answer:\n{golds[0]}\n\n\
-### User:\n{questions[1]}\n\n\
-### Reference answer:\n{golds[1]}\n\n\
+### User:\n{question[0]}\n\n\
+### Reference answer:\n{gold[0]}\n\n\
+### User:\n{question[1]}\n\n\
+### Reference answer:\n{gold[1]}\n\n\
 <|The End of Reference Answer|>
 </evaluation_criteria>
 

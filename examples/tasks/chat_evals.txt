@@ -2,15 +2,15 @@
 community|ifeval_el|0|0
 extended|ifeval|0|0
 ### MT-Bench
-community|mt_bench_el:default|0|0
-extended|mt_bench|0|0
+# community|mt_bench_el:default|0|0
+# extended|mt_bench|0|0
 ### MMLU PRO greek (run mmlu-pro english from their repo)
 # community|mmlu_pro_el|5|0
 # community|mmlu_pro_cot_el|5|0
 ### GSM8K
-leaderboard|gsm8k|5|0
+# leaderboard|gsm8k|5|0
 ### MGSM
-community|mgsm:el|5|0
+# community|mgsm:el|5|0
 ### Include Base 44
 # community|include_base_44:Greek:cot_el|0|0
 # community|include_base_44:Greek:cot_en|0|0
