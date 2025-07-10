@@ -1015,7 +1015,7 @@ class JudgeLLMSimpleQA(JudgeLLM):
 
 
 class JudgeLLMMTBench(JudgeLLM):
-    def compute(self, model_response: list[ModelResponse | list[ModelResponse]], docs: list[Doc], **kwargs):
+    def compute(self, model_response: list[ModelResponse | list[ModelResponse]], docs: Union[Doc | list[Doc]], **kwargs):
         """
         Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
@@ -1023,37 +1023,21 @@ class JudgeLLMMTBench(JudgeLLM):
         which are ignored later by the aggregator.
         """     
         import json
-        
-        print("MODEL RESPONSE", model_response)
-        print("DOCS", docs)
 
-        questions = []
-        golds = []
-        for formatted_doc in docs:
-            questions.append(formatted_doc.specific["multi_turn_queries"])
-            golds.append(formatted_doc.specific.get("reference", [None, None]))
-        
-        predictions = [[responses[0].text[0], responses[1].text[0]] for responses in model_response]
-        
+        questions = docs.specific["multi_turn_queries"]
+        golds = docs.specific.get("reference", [None, None])
+        predictions = [model_response.text[0], model_response.text[1]]
         options = [None for _ in range(len(golds))]
-   
-        scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
-        metrics = []
-        for i in range(len(sample_ids)):
-            try:
-                metrics.append(
-                    {
-                        "judge_score_turn_1": 10,
-                        "judge_score_turn_2": scores[i],
-                        "user_prompt": ["", messages[i]],
-                        "judgement": ["", judgements[i]],
-                    }
-                )
-            except:
-                logger.warning(f"Error at index {i}")
-        
-        return metrics
+        score, message, judgement = self.judge.evaluate_answer(questions, predictions, options, golds)
+
+        # TODO prune the MT-Bench returns accross the board (remove anything related to the first turn)
+        return {
+            "judge_score_turn_1": 10,
+            "judge_score_turn_2": score,
+            "user_prompt": message,
+            "judgement": judgement,
+        }
 
 
 class JudgeLLMMixEval(JudgeLLM):

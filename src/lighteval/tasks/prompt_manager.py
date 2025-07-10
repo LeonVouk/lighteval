@@ -52,6 +52,13 @@ class PromptManager:
         else:
             return self._prepare_plain_text(doc)
 
+    def prepare_prompt_multiturn(self, doc: Doc, n_turn: int): #, previous_completions: list[str] = None) -> str:
+        """Prepare a prompt from a document, either using chat template or plain text format."""
+        if not self.use_chat_template:
+            raise ValueError("Only for chat models, use chat template.")
+
+        return self._prepare_chat_template_multiturn(doc, n_turn)
+
     def prepare_prompt_multimodal(self, doc: Doc) -> str:
         if self.use_chat_template is False or self.tokenizer is None:
             raise ValueError("Multimodal prompts are only supported with chat template format.")
@@ -114,6 +121,53 @@ class PromptManager:
             # If instruction is provided, prepend it to the main query
             main_query = doc.instruction + main_query
 
+        messages.append({"role": "user", "content": main_query})
+
+        if tokenize:  # for local models
+            assert self.tokenizer is not None, "Tokenizer must be set for chat template formatting."
+
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+
+        else:  # for apis
+            return messages
+
+    def _prepare_chat_template_multiturn(self, doc: Doc, n_turn: int, tokenize: bool = True) -> str: # previous_completions: list[str]
+        """Prepare prompt using chat template format."""
+        messages = []
+        instruction_used = False  # Flag to check if instruction is used in the first few-shot example
+
+        # Add system prompt if available
+        if self.system_prompt is not None:
+            messages.append({"role": "system", "content": self.system_prompt})
+
+        # Add few-shot examples
+        for ix, fewshot_sample in enumerate(doc.fewshot_samples):
+            query = self._extract_query(fewshot_sample.query, fewshot_sample.instruction)
+            if ix == 0 and doc.instruction is not None:
+                instruction_used = True
+                query = doc.instruction + query
+
+            messages.append({"role": "user", "content": query})
+            messages.append({"role": "assistant", "content": fewshot_sample.get_golds()[0]})
+
+        # Add main query
+        query = doc.specific["multi_turn_queries"][n_turn]
+        main_query = self._extract_query(query, doc.instruction)
+
+        if doc.instruction is not None and not instruction_used:
+            # If instruction is provided, prepend it to the main query
+            main_query = doc.instruction + main_query
+
+        # assert len(previous_completions) == n_turn, "If not first turn, provide assistant completions"
+        if n_turn > 0:
+            for i in range(n_turn):
+                messages.append({"role": "user", "content": self._extract_query(doc.specific["multi_turn_queries"][i], doc.instruction)})
+                messages.append({"role": "assistant", "content": "{model_response_" + f"{i}" + "}"})
+        
         messages.append({"role": "user", "content": main_query})
 
         if tokenize:  # for local models

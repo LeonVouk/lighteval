@@ -277,7 +277,6 @@ class JudgeLM:
     def __call_transformers(self, prompt):
         try:
             response = self.pipe(prompt)[0]["generated_text"]
-            response = response[-1]["content"]
         except TypeError:
             response = [r[0]["generated_text"] for r in self.pipe(prompt)]
             response = [r[-1]["content"] for r in response]

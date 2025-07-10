@@ -12,8 +12,8 @@
 ### MGSM
 # community|mgsm:el|5|0
 ### MT-Bench
-community|mt_bench_el:default|0|0
-# extended|mt_bench|0|0
+# community|mt_bench_el:default|0|0
+extended|mt_bench|0|0
 ### MMLU PRO greek (run mmlu-pro english from their repo)
 # community|mmlu_pro_el|0|0
 # community|mmlu_pro_cot_el|0|0
