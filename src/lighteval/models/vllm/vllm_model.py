@@ -318,10 +318,15 @@ class VLLMModel(LightevalModel):
 
             max_new_tokens = self._config.generation_parameters.max_new_tokens or split[0].generation_size
             num_samples = split[0].num_samples
+
+            # TODO should probably make a specific category or something for any multiturn task. We shall see
             is_mt_bench = "mt_bench" in split[0].task_name
     
             if is_mt_bench:
-                
+
+                # TODO parametrize this and make sure it works for 1) All n, 2) Different n within the same dataset
+                N_TURNS = 2
+
                 MT_BENCH_CATEGORY_0_7_TEMP = {
                     "writing": 0.7,
                     "roleplay": 0.7
@@ -347,7 +352,7 @@ class VLLMModel(LightevalModel):
                 ]
                 
                 for group, temp in groups:
-                    self.greedy_until_multiturn(local_results, group, temp, max_new_tokens, num_samples, stop_tokens)
+                    self.greedy_until_multiturn(local_results, group, temp, max_new_tokens, num_samples, stop_tokens, N_TURNS)
                
                 results.extend(local_results)
 
@@ -407,7 +412,8 @@ class VLLMModel(LightevalModel):
 
         return dataset.get_original_order(results)
 
-    def greedy_until_multiturn(self, local_results, group, temp, max_new_tokens, num_samples, stop_tokens):
+    # TODO remove in later version, keep atm for sanity purposes
+    def greedy_until_multiturn_deprecated(self, local_results, group, temp, max_new_tokens, num_samples, stop_tokens):
         order = [t[0] for t in group]
         # TODO can make this work for n turn
         context_first_turn = [self.prompt_manager.prepare_prompt_multiturn(t[1], 0) for t in group]
@@ -527,6 +533,104 @@ class VLLMModel(LightevalModel):
                 output_tokens=[answers[4], answers[8]],
                 input_tokens=[answers[2], answers[6]],
             )
+
+
+    def greedy_until_multiturn(self, local_results, group, temp, max_new_tokens, num_samples, stop_tokens, n_turns):
+        order = [t[0] for t in group]
+        
+        all_contexts = []
+        all_rounds_model_generations = []
+        all_rounds_results = []
+        all_rounds_input_tokens = []
+        for n_t in range(n_turns):
+            local_context = [self.prompt_manager.prepare_prompt_multiturn(t[1], n_t) for t in group]
+            
+
+            if n_t > 0:
+                for n in range(n_t):
+                    local_context = [c.format(**{f"model_response_{n}": d_g}) for c, d_g in zip(local_context, all_rounds_results[n])]
+
+
+            all_contexts.append(local_context)
+            tokenized = self.tokenizer(local_context, add_special_tokens=self.add_special_tokens)
+            # The main question for this step is the following:
+            # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
+            # of losing some meaning, or have some generations that are exceedingly short?
+            # The choice we go for here is to avoid truncating the prompt if we can, since it
+            # should have been managed by the prompt creator/few shot manager if requested by the user.
+            inputs = tokenized["input_ids"]
+            context_size = len(inputs[0])
+
+            # left truncate the inputs to the maximum length
+            if max_new_tokens is not None:
+                if context_size + max_new_tokens > self.max_length:
+                    logger.warning(
+                        f"{context_size + max_new_tokens=} which is greater than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
+                    )
+                    context_size = self.max_length - max_new_tokens
+                    if context_size < 0:
+                        logger.critical(
+                            f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
+                        )
+                        raise ValueError("Context size is less than 0.")
+                    inputs = [input[-context_size:] for input in inputs]
+            else:
+                if context_size > self.max_length:
+                    logger.warning(
+                        f"{context_size=} which is greater than {self.max_length=}. Truncating context to {self.max_length} tokens."
+                    )
+                    context_size = self.max_length
+                    inputs = [input[-context_size:] for input in inputs]
+            
+            vllm_outputs = self._generate_multiturn(
+                inputs=inputs,
+                temp=temp,
+                max_new_tokens=max_new_tokens,
+                stop_tokens=stop_tokens,
+                returns_logits=False,
+                num_samples=num_samples,
+            )
+
+            model_generations = []
+            round_results = []
+            input_tokens = []
+            for i, vllm_output in enumerate(vllm_outputs):
+                output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
+                model_generations.append(output_token_ids)
+                result = [output.text for output in vllm_output.outputs]
+                if stop_tokens:
+                    for term in stop_tokens:
+                        result = [r.split(term)[0] for r in result]
+                round_results.append(result[0])
+                input_token_ids = vllm_output.prompt_token_ids
+                input_tokens.append(input_token_ids)
+
+            all_rounds_model_generations.append(model_generations)
+            all_rounds_results.append(round_results)
+            all_rounds_input_tokens.append(input_tokens)
+        
+        # This has to change, just matching the rest of the lighteval ModelResponse implementations for now
+        for answers in zip(
+            order, 
+            zip(*[i for i in all_contexts]), 
+            zip(*[i for i in all_rounds_results]),
+            zip(*[i for i in all_rounds_model_generations]),
+            zip(*[i for i in all_rounds_input_tokens]),
+            ):
+            
+            idx = answers[0]
+            _inputs = [i for i in answers[1]]
+            _text = [i for i in answers[2]]
+            _out_toks = [i[0] for i in answers[3]]
+            _in_toks = [i for i in answers[4]]
+            
+            local_results[idx] = ModelResponse(
+                input=_inputs,
+                text=_text,
+                output_tokens=_out_toks,
+                input_tokens=_in_toks,
+            )
+
 
     def _generate(
         self,

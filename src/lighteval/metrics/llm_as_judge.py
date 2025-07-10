@@ -270,6 +270,8 @@ class JudgeLM:
         judge_function = self.__lazy_load_client()
         prompt = self.template(question=question, options=options, answer=answer, gold=gold)
         response = judge_function(prompt)
+        if isinstance(response, list):
+            response = response[0]
         score = self.process_judge_response(response)
 
         return score, prompt, response

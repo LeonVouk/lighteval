@@ -1031,7 +1031,7 @@ class JudgeLLMMTBench(JudgeLLM):
 
         score, message, judgement = self.judge.evaluate_answer(questions, predictions, options, golds)
 
-        # TODO prune the MT-Bench returns accross the board (remove anything related to the first turn)
+        # TODO prune the MT-Bench returns across the board (remove anything related to the first turn)
         return {
             "judge_score_turn_1": 10,
             "judge_score_turn_2": score,

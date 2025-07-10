@@ -76,10 +76,10 @@ llm_judge_mt_bench = SampleLevelMetricGrouping(
     higher_is_better={"judge_score_turn_1": True, "judge_score_turn_2": True},
     category=SamplingMethod.GENERATIVE,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="openai/gpt-4o", # "litellm_proxy/krikri-dpo", "openai/gpt-4o", "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
+        judge_model_name="gpt-4o", # "litellm_proxy/krikri-dpo", "openai/gpt-4o", "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
         template=flow_judge_mt_bench_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="litellm", # "transformers",
+        judge_backend="openai", # "transformers",
     ).compute,
     corpus_level_fn={
         "judge_score_turn_1": np.mean,

@@ -52,7 +52,7 @@ class PromptManager:
         else:
             return self._prepare_plain_text(doc)
 
-    def prepare_prompt_multiturn(self, doc: Doc, n_turn: int): #, previous_completions: list[str] = None) -> str:
+    def prepare_prompt_multiturn(self, doc: Doc, n_turn: int) -> str:
         """Prepare a prompt from a document, either using chat template or plain text format."""
         if not self.use_chat_template:
             raise ValueError("Only for chat models, use chat template.")
@@ -135,7 +135,7 @@ class PromptManager:
         else:  # for apis
             return messages
 
-    def _prepare_chat_template_multiturn(self, doc: Doc, n_turn: int, tokenize: bool = True) -> str: # previous_completions: list[str]
+    def _prepare_chat_template_multiturn(self, doc: Doc, n_turn: int, tokenize: bool = True) -> str:
         """Prepare prompt using chat template format."""
         messages = []
         instruction_used = False  # Flag to check if instruction is used in the first few-shot example
@@ -162,7 +162,6 @@ class PromptManager:
             # If instruction is provided, prepend it to the main query
             main_query = doc.instruction + main_query
 
-        # assert len(previous_completions) == n_turn, "If not first turn, provide assistant completions"
         if n_turn > 0:
             for i in range(n_turn):
                 messages.append({"role": "user", "content": self._extract_query(doc.specific["multi_turn_queries"][i], doc.instruction)})
