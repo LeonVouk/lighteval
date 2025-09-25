@@ -53,10 +53,15 @@ from lighteval.metrics.normalizations import (
 from lighteval.metrics.utils.judge_utils import get_judge_prompt_simpleqa, process_judge_response_simpleqa
 from lighteval.models.model_output import ModelResponse
 from lighteval.tasks.requests import Doc
-from lighteval.utils.utils import as_list, safe_divide
+from lighteval.utils.utils import as_list, safe_divide, remove_reasoning_tags
 
 
 logger = logging.getLogger(__name__)
+
+
+REASONING_TAG_PAIRS = [
+    ("<think>", "</think>"),
+]
 
 
 class ExactMatches:
@@ -128,6 +133,10 @@ class ExactMatches:
         Returns:
             float: The exact match score. Will be 1 for a match, 0 otherwise.
         """
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+        
         if not pred:
             return 0
 
@@ -203,6 +212,10 @@ class F1_score:
         Returns:
             float: The f1 score over the bag of words, computed using nltk.
         """
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+
         if self.normalize_gold:
             gold = self.normalize_gold(gold)
 
@@ -554,6 +567,8 @@ class ROUGE:
     def _rouge_score(self, golds: list[str], preds: list[str]):
         scores = {m: [] for m in self.methods}
         for pred in preds:
+            # TODO maybe add a setting to turn reasoning parsing on/off
+            pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
             for gold in golds:
                 cur_scores = self.scorer.score(gold, pred)
                 for method in self.methods:
@@ -563,6 +578,8 @@ class ROUGE:
     def _rouge_score_multi_golds(self, golds: list[str], preds: list[str]):
         scores = {m: [] for m in self.methods}
         for pred in preds:
+            # TODO maybe add a setting to turn reasoning parsing on/off
+            pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
             cur_scores = self.scorer.score_multi(golds, pred)
             for method in self.methods:
                 scores[method].append(cur_scores[method].fmeasure)
@@ -572,6 +589,8 @@ class ROUGE:
         from rouge_score import scoring
 
         aggregator = scoring.BootstrapAggregator()
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
         for g, p in zip(golds, predictions):
             aggregator.add_scores(self.scorer.score(g, p))
         result = aggregator.aggregate()
@@ -620,6 +639,10 @@ class BertScore:
         """
         golds = doc.get_golds()
         predictions = model_response.text
+        
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
+
 
         if self.bert_scorer is None:
             logger.warning("The first metric computation step might be a bit longer as we need to download the model.")
@@ -686,6 +709,9 @@ class Extractiveness:
         if self.normalize_pred:
             prediction = self.normalize_pred(prediction)
 
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        prediction = remove_reasoning_tags(prediction, REASONING_TAG_PAIRS)
+
         stats = self.stats_metric.evaluate_example(prediction, inp)
         return {
             "summarization_coverage": stats["coverage"],
@@ -740,6 +766,10 @@ class Faithfulness:
             inp = self.normalize_input(inp)
         if self.normalize_pred:
             prediction = self.normalize_pred(prediction)
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        prediction = remove_reasoning_tags([prediction], REASONING_TAG_PAIRS)
+
         return self.summac.score_one(inp, prediction)["score"]
 
 
@@ -778,6 +808,10 @@ class BLEURT:
         golds = doc.get_golds()
         if len(predictions) == 1:
             predictions = predictions * len(golds)
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
+
         scores = self.model(**self.tokenizer(golds, predictions, return_tensors="pt"))[0].squeeze()
         return scores.item()
 
@@ -816,6 +850,10 @@ class BLEU:
         Returns:
             float: Score over the current prediction.
         """
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+
         weights = [1 if ix == self.n_gram else 0 for ix in range(1, 5)]
         return sentence_bleu([word_tokenize(g) for g in gold], word_tokenize(pred), weights=weights)
 
@@ -866,6 +904,9 @@ class StringDistance:
                 completion = sequence.strip()
             else:
                 completion = sequence
+            
+            # TODO maybe add a setting to turn reasoning parsing on/off
+            completion = remove_reasoning_tags(completion, REASONING_TAG_PAIRS)
 
             # `reference` is the entire remaining book for each instance.
             # Truncate it here to be of the same length as the completion to ensure edit-distance is meaningful.
@@ -973,7 +1014,7 @@ class JudgeLLM:
             max_tokens=max_tokens,
         )
 
-    def compute(self, responses: list[ModelResponse], docs: list[Doc], **kwargs) -> list:
+    def compute(self, responses: list[ModelResponse], doc: list[Doc], **kwargs) -> list:
         raise NotImplementedError("This method should be implemented in the subclass.")
 
 
@@ -987,22 +1028,26 @@ class JudgeLLMSimpleQA(JudgeLLM):
             short_judge_name="gpt4o",
         )
 
-    def compute(self, responses: list[ModelResponse], docs: list[Doc], **kwargs) -> list:
+    def compute(self, responses: list[ModelResponse], doc: list[Doc], **kwargs) -> list:
         """
         Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
         return scores for turn 1 and 2. Also returns user_prompt and judgement
         which are ignored later by the aggregator.
         """
-        questions = [formatted_doc.query for formatted_doc in docs]
-        options = [formatted_doc.choices for formatted_doc in docs]
-        golds = [formatted_doc.get_golds()[0] for formatted_doc in docs]
+        questions = [formatted_doc.query for formatted_doc in doc]
+        options = [formatted_doc.choices for formatted_doc in doc]
+        golds = [formatted_doc.get_golds()[0] for formatted_doc in doc]
         predictions = [response.text[0] for response in responses]
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
+
 
         scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
         metrics = []
-        for i in range(len(docs)):
+        for i in range(len(doc)):
             metrics.append(
                 {
                     "simpleqa_judge": scores[i],
@@ -1015,7 +1060,7 @@ class JudgeLLMSimpleQA(JudgeLLM):
 
 
 class JudgeLLMMTBench(JudgeLLM):
-    def compute(self, model_response: list[ModelResponse | list[ModelResponse]], docs: Union[Doc | list[Doc]], **kwargs):
+    def compute(self, model_response: list[ModelResponse | list[ModelResponse]], doc: Union[Doc | list[Doc]], **kwargs):
         """
         Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
@@ -1024,9 +1069,14 @@ class JudgeLLMMTBench(JudgeLLM):
         """     
         import json
 
-        questions = docs.specific["multi_turn_queries"]
-        golds = docs.specific.get("reference", [None, None])
+        questions = doc.specific["multi_turn_queries"]
+        golds = doc.specific.get("reference", [None, None])
         predictions = [model_response.text[0], model_response.text[1]]
+        
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
+
+
         options = [None for _ in range(len(golds))]
 
         score, message, judgement = self.judge.evaluate_answer(questions, predictions, options, golds)
@@ -1041,22 +1091,26 @@ class JudgeLLMMTBench(JudgeLLM):
 
 
 class JudgeLLMMixEval(JudgeLLM):
-    def compute(self, model_responses: list[ModelResponse], docs: list[Doc], **kwargs):
+    def compute(self, model_responses: list[ModelResponse], doc: list[Doc], **kwargs):
         """
         Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
         return scores for turn 1 and 2. Also returns user_prompt and judgement
         which are ignored later by the aggregator.
         """
-        questions = [doc.specific["question"] for doc in docs]
-        options = [doc.choices for doc in docs]
-        golds = [doc.get_golds()[0] for doc in docs]
+        questions = [doc.specific["question"] for doc in doc]
+        options = [doc.choices for doc in doc]
+        golds = [doc.get_golds()[0] for doc in doc]
         predictions = [response.text[0] for response in model_responses]
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
+
 
         scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
         metrics = []
-        for i in range(len(docs)):
+        for i in range(len(doc)):
             metrics.append(
                 {
                     f"judge_score_{self.short_judge_name}": scores[i],
@@ -1103,7 +1157,7 @@ class MajAtK:
             )
         self.type_exact_match = type_exact_match
 
-    def compute(self, model_response: ModelResponse, docs: Doc, **kwargs):
+    def compute(self, model_response: ModelResponse, doc: Doc, **kwargs):
         """Computes the metric over a list of golds and predictions for one single sample.
         It applies normalisation (if needed) to model prediction and gold, and takes the most frequent answer of all the available ones,
         then compares it to the gold.
@@ -1115,7 +1169,7 @@ class MajAtK:
         Returns:
             float: Aggregated score over the current sample's items.
         """
-        golds = docs.get_golds()
+        golds = doc.get_golds()
         predictions = model_response.text
         if len(golds) > 1:
             raise Exception("Cannot compute maj@k with several golds")
@@ -1137,6 +1191,10 @@ class MajAtK:
         return gold
 
     def get_processed_pred(self, pred: str) -> str:
+        
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+        
         if not pred:
             return ""
 
@@ -1254,6 +1312,10 @@ class PassAtK:
         return gold
 
     def get_processed_pred(self, pred: str) -> str:
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+
         if not pred:
             return ""
 
@@ -1388,6 +1450,10 @@ class GPassAtK:
         return gold
 
     def get_processed_pred(self, pred: str) -> str:
+
+        # TODO maybe add a setting to turn reasoning parsing on/off
+        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
+
         if not pred:
             return ""
 

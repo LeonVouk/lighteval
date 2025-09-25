@@ -63,7 +63,6 @@ def ifeval_metric(doc: Doc, model_response: ModelResponse, **kwargs) -> dict:
     response = model_response.text[0]
     # Remove the reasoning block to avoid false negatives: https://github.com/huggingface/lighteval/issues/790
     response = remove_reasoning_tags(response, REASONING_TAG_PAIRS)
-
     # Strict instructions
     instruction_list = doc.specific["instructions_id_list"]
     all_kwargs = doc.specific["kwargs"]

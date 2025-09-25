@@ -38,11 +38,14 @@ from lighteval.metrics.sample_preparator import (
     LogprobCorpusMetricInput,
     PerplexityCorpusMetricInput,
 )
-from lighteval.utils.utils import as_list
+from lighteval.utils.utils import as_list, remove_reasoning_tags
 
 
 logger = logging.getLogger(__name__)
 
+REASONING_TAG_PAIRS = [
+    ("<think>", "</think>"),
+]
 
 # General aggregations
 def matthews_corrcoef(items: list[GenerativeCorpusMetricInput]) -> float:
@@ -123,7 +126,7 @@ class CorpusLevelTranslationMetric:
                 logger.info(
                     f"Multiple predictions present, keeping only the first prediction (when computing sacrebleu.{metric.__name__})."
                 )
-            preds.append(pred[0])
+            preds.append(remove_reasoning_tags(pred[0], REASONING_TAG_PAIRS))
         return float(metric.corpus_score(hypotheses=preds, references=golds).score)
 
 

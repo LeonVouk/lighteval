@@ -48,7 +48,7 @@ def apply_metric(responses: list[ModelResponse], docs: list[Doc], metrics: list[
                 output.update(
                     metric.compute(
                         model_response=model_response,
-                        docs=doc,
+                        doc=doc,
                     )
                 )
                 outputs.append(output)

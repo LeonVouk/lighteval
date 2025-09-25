@@ -646,6 +646,10 @@ class VLLMModel(LightevalModel):
 
         if generate:
             sampling_params.n = num_samples
+            if self._config.thinking_budget:
+                logger.info(f"Extending {max_new_tokens} max new tokens with {self._config.thinking_budget} thinking budget tokens.")
+                max_new_tokens += self._config.thinking_budget
+                logger.info(f"New max_new_tokens={max_new_tokens}")
             sampling_params.max_tokens = max_new_tokens
             sampling_params.stop = stop_tokens
             sampling_params.logprobs = 1 if returns_logits else 0
@@ -708,6 +712,10 @@ class VLLMModel(LightevalModel):
         sampling_params = SamplingParams(**self._config.generation_parameters.to_vllm_dict())
         sampling_params.n = num_samples
         sampling_params.max_tokens = max_new_tokens
+        if self._config.thinking_budget:
+            logger.info(f"Extending {max_new_tokens} max new tokens with {self._config.thinking_budget} thinking budget tokens.")
+            max_new_tokens += self._config.thinking_budget
+            logger.info(f"New max_new_tokens={max_new_tokens}")
         sampling_params.stop = stop_tokens
         sampling_params.logprobs = 1 if returns_logits else 0
         sampling_params.temperature = temp

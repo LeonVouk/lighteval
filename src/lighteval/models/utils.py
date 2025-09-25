@@ -78,6 +78,7 @@ class ModelConfig(BaseModel, extra="forbid"):
 
     generation_parameters: GenerationParameters = GenerationParameters()
     system_prompt: str | None = None
+    thinking_budget: int | None = None
 
     @classmethod
     def from_path(cls, path: str):
