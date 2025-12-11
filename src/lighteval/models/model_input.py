@@ -25,6 +25,9 @@ from pydantic import BaseModel, NonNegativeFloat, NonNegativeInt
 
 
 class GenerationParameters(BaseModel, extra="forbid"):
+    num_blocks: NonNegativeInt | None = None  # transformers
+    block_size: NonNegativeInt | None = None  # transformers
+
     early_stopping: bool | None = None  # transformers
     repetition_penalty: NonNegativeFloat | None = None  # vllm, transformers, tgi, sglang
     frequency_penalty: NonNegativeFloat | None = None  # vllm, tgi, sglang
@@ -44,6 +47,8 @@ class GenerationParameters(BaseModel, extra="forbid"):
     top_p: NonNegativeFloat | None = None  # vllm, transformers, tgi, litellm, sglang
     truncate_prompt: bool | None = None  # vllm, tgi
 
+    cache_implementation: str | None = None  # transformers
+
     # response format to be followed by the model,
     # more info here https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format
     response_format: str | None = None  # inference_providers
@@ -61,6 +66,9 @@ class GenerationParameters(BaseModel, extra="forbid"):
                     "truncate_prompt": value
                 }
             }
+
+        Returns:
+            GenerationParameters: A GenerationParameters object created from the config dictionary
         """
         return GenerationParameters(**config_dict.get("generation", {}))
 
@@ -75,6 +83,9 @@ class GenerationParameters(BaseModel, extra="forbid"):
         Args:
             model_args (str): A string like the following:
                 "pretrained=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B,dtype=float16,max_model_length=32768,generation_parameters={temperature:0.7,top_p:5}"
+
+        Returns:
+            GenerationParameters: A GenerationParameters object created from the model args string
         """
 
         def parse_model_args(model_args):
@@ -186,7 +197,10 @@ class GenerationParameters(BaseModel, extra="forbid"):
             "repetition_penalty": self.repetition_penalty,
             "length_penalty": self.length_penalty,
             "output_scores": True,
+            "num_blocks": self.num_blocks,
+            "block_size": self.block_size,
             "return_dict_in_generate": True,
+            "cache_implementation": self.cache_implementation,
         }
         return {k: v for k, v in args.items() if v is not None}
 

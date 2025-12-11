@@ -28,37 +28,38 @@ from typer import Option
 from typing_extensions import Annotated
 from yaml import SafeLoader
 
-
-HELP_PANEL_NAME_1 = "Common Parameters"
-HELP_PANEL_NAME_2 = "Logging Parameters"
-HELP_PANEL_NAME_3 = "Debug Parameters"
-HELP_PANEL_NAME_4 = "Modeling Parameters"
+from lighteval.cli_args import (
+    load_tasks_multilingual,
+    reasoning_tags,
+    remove_reasoning_tags,
+)
+from lighteval.utils.imports import requires
 
 
 SEED = 1234
 
 
+@requires("nanotron")
 def nanotron(
     checkpoint_config_path: Annotated[
         str, Option(help="Path to the nanotron checkpoint YAML or python config file, potentially on s3.")
     ],
     lighteval_config_path: Annotated[str, Option(help="Path to a YAML config to be used for the evaluation.")],
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
 ):
     """
     Evaluate models using nanotron as backend.
     """
     from nanotron.config import GeneralArgs, ModelArgs, TokenizerArgs, get_config_from_dict, get_config_from_file
 
-    from lighteval.config.lighteval_config import (
+    from lighteval.logging.evaluation_tracker import EvaluationTracker
+    from lighteval.models.nanotron import (
         FullNanotronConfig,
         LightEvalConfig,
     )
-    from lighteval.logging.evaluation_tracker import EvaluationTracker
     from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
-    from lighteval.utils.imports import NO_NANOTRON_ERROR_MSG, is_nanotron_available
-
-    if not is_nanotron_available():
-        raise ImportError(NO_NANOTRON_ERROR_MSG)
 
     # Create nanotron config
     if not checkpoint_config_path.endswith(".yaml"):
@@ -101,6 +102,9 @@ def nanotron(
         custom_tasks_directory=lighteval_config.tasks.custom_tasks,
         num_fewshot_seeds=1,
         max_samples=lighteval_config.tasks.max_samples,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
+        load_tasks_multilingual=load_tasks_multilingual,
     )
 
     pipeline = Pipeline(

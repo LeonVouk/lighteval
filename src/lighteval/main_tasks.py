@@ -19,12 +19,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import json
 import logging
-from typing import Optional
 
 import typer
 from typer import Argument, Option
 from typing_extensions import Annotated
+
+from lighteval.cli_args import custom_tasks, load_tasks_multilingual
 
 
 app = typer.Typer()
@@ -33,30 +35,28 @@ app = typer.Typer()
 @app.command()
 def inspect(
     tasks: Annotated[str, Argument(help="Id of tasks or path to a text file with a list of tasks")],
-    custom_tasks: Annotated[Optional[str], Option(help="Path to a file with custom tasks")] = None,
+    load_multilingual: Annotated[bool, Option(help="Whether to load multilingual tasks")] = False,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
     num_samples: Annotated[int, Option(help="Number of samples to display")] = 10,
     show_config: Annotated[bool, Option(help="Will display the full task config")] = False,
 ):
-    """
-    Inspect a tasks
-    """
+    """Inspect a tasks"""
     from dataclasses import asdict
     from pprint import pformat
 
     from rich import print
 
-    from lighteval.tasks.registry import Registry, taskinfo_selector
+    from lighteval.tasks.registry import Registry
 
-    registry = Registry(custom_tasks=custom_tasks)
+    registry = Registry(tasks=tasks, custom_tasks=custom_tasks, load_multilingual=load_multilingual)
 
     # Loading task
-    task_names_list, _ = taskinfo_selector(tasks, task_registry=registry)
-    task_dict = registry.get_task_dict(task_names_list)
+    task_dict = registry.load_tasks()
     for name, task in task_dict.items():
         print("-" * 10, name, "-" * 10)
         if show_config:
             print("-" * 10, "CONFIG")
-            task.cfg.print()
+            task.config.print()
         for ix, sample in enumerate(task.eval_docs()[: int(num_samples)]):
             if ix == 0:
                 print("-" * 10, "SAMPLES")
@@ -65,21 +65,20 @@ def inspect(
 
 
 @app.command()
-def list(custom_tasks: Annotated[Optional[str], Option(help="Path to a file with custom tasks")] = None):
-    """
-    List all tasks
-    """
+def list(
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+):
+    """List all tasks"""
     from lighteval.tasks.registry import Registry
 
-    registry = Registry(custom_tasks=custom_tasks)
+    registry = Registry(custom_tasks=custom_tasks, load_multilingual=load_tasks_multilingual)
     registry.print_all_tasks()
 
 
 @app.command()
 def create(template: str, task_name: str, dataset_name: str):
-    """
-    Create a new task
-    """
+    """Create a new task"""
     logger = logging.getLogger(__name__)
 
     logger.info(f"Creating task for dataset {dataset_name}")
@@ -94,3 +93,17 @@ def create(template: str, task_name: str, dataset_name: str):
         f.write(content)
 
     logger.info(f"Task created in custom_{task_name}_task.py")
+
+
+@app.command()
+def dump(
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+):
+    """Dump all task names, metadata, and docstrings as JSON"""
+    from lighteval.tasks.registry import Registry
+
+    registry = Registry(custom_tasks=custom_tasks, load_multilingual=load_tasks_multilingual)
+    modules_data = registry.get_tasks_dump()
+
+    print(json.dumps(modules_data, indent=2, default=str))

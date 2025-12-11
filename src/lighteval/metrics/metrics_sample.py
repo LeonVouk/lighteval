@@ -24,8 +24,10 @@
 using simple function (min, mean, max, ...) at the corpus level. Most metrics fall under this category.
 """
 
+import inspect
 import logging
 import os
+from abc import ABC, abstractmethod
 from typing import Callable, Literal, Union
 
 import nltk
@@ -42,7 +44,6 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from lighteval.metrics.imports.bert_scorer import BERTScorer
 from lighteval.metrics.imports.data_stats_metric import DataStatsMetric
 from lighteval.metrics.imports.summac import SummaCZS
-from lighteval.metrics.llm_as_judge import JudgeLM
 from lighteval.metrics.normalizations import (
     LogProbNormalization,
     LogProbTokenNorm,
@@ -51,6 +52,7 @@ from lighteval.metrics.normalizations import (
     remove_braces_and_strip,
 )
 from lighteval.metrics.utils.judge_utils import get_judge_prompt_simpleqa, process_judge_response_simpleqa
+from lighteval.metrics.utils.llm_as_judge import JudgeLM
 from lighteval.models.model_output import ModelResponse
 from lighteval.tasks.requests import Doc
 from lighteval.utils.utils import as_list, safe_divide, remove_reasoning_tags
@@ -64,7 +66,29 @@ REASONING_TAG_PAIRS = [
 ]
 
 
-class ExactMatches:
+REASONING_TAG_PAIRS = [
+    ("<think>", "</think>"),
+]
+
+
+class SampleLevelComputation(ABC):
+    @abstractmethod
+    def compute(self, doc: Doc, model_response: ModelResponse, **kwargs):
+        raise NotImplementedError
+
+    def __str__(self):
+        attrs = vars(self)
+        attr_strs = []
+        for k, v in attrs.items():
+            if callable(v):
+                val_str = v.__name__
+            else:
+                val_str = str(v)
+            attr_strs.append(f"{k}={val_str}")
+        return f"{self.__class__.__name__}({', '.join(attr_strs)})"
+
+
+class ExactMatches(SampleLevelComputation):
     def __init__(
         self,
         aggregation_function: Callable[[list[float]], float] = max,
@@ -105,8 +129,9 @@ class ExactMatches:
         """Computes the metric over a list of golds and predictions for one single sample.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Aggregated score over the current sample's items.
@@ -115,7 +140,7 @@ class ExactMatches:
         # We might need to flatten golds if they are a list of lists
         golds = doc.get_golds()
         for gold in golds:
-            for pred in model_response.text:
+            for pred in model_response.final_text:
                 results.append(self.compute_one_item(gold=gold, pred=pred))
         return self.aggregation_function(results)
 
@@ -156,7 +181,7 @@ class ExactMatches:
         return 1 if gold == pred else 0
 
 
-class F1_score:
+class F1_score(SampleLevelComputation):
     def __init__(
         self,
         aggregation_function: Callable[[list[float]], float] = max,
@@ -187,15 +212,16 @@ class F1_score:
         """Computes the metric over a list of golds and predictions for one single sample.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Aggregated score over the current sample's items.
         """
         results = []
         golds = doc.get_golds()
-        predictions = model_response.text
+        predictions = model_response.final_text
         # We might need to flatten golds if they are a list of lists
         for gold in golds:
             for pred in predictions:
@@ -232,13 +258,13 @@ class F1_score:
         return ret
 
 
-class LoglikelihoodAcc:
+class LoglikelihoodAcc(SampleLevelComputation):
     def __init__(self, logprob_normalization: LogProbNormalization | None = None):
         """Log likelihood accuracy class. It tests if the highest log-probability of the possible choices
         is actually in the gold ones.
 
         Args:
-            normalization (Normalization): The normalization to apply.
+            logprob_normalization (LogProbNormalization | None): The normalization to apply.
         """
         self.logprob_normalization = logprob_normalization
 
@@ -253,12 +279,9 @@ class LoglikelihoodAcc:
         in the `gold_ixs`?
 
         Args:
-            gold_ixs (list[int]): All the gold choices indices
-            choices_logprob (list[float]): Summed log-probabilities of all the possible choices for the model, ordered as the choices.
-            unconditioned_logprob (list[float] | None): Unconditioned log-probabilities for PMI normalization, ordered as the choices.
-            choices_tokens (list[list[int]] | None): Tokenized choices for token normalization, ordered as the choices.
-            formatted_doc (Doc): Original document for the sample.
-                Used to get the original choices' length for possible normalization
+            doc (Doc): The document containing choices and gold indices.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             int: The eval score: 1 if the best log-prob choice is in gold, 0 otherwise.
@@ -289,7 +312,7 @@ class LoglikelihoodAcc:
         return int(best_choice in gold_ixs)
 
 
-class NormalizedMultiChoiceProbability:
+class NormalizedMultiChoiceProbability(SampleLevelComputation):
     def __init__(
         self,
         log_prob_normalization: LogProbNormalization | None = None,
@@ -299,8 +322,8 @@ class NormalizedMultiChoiceProbability:
         it returns the aggregated probability (default is max).
 
         Args:
-            normalization (Normalization | None): The normalization to apply.
-            aggregation_function (Callable[[list[float]], float]): The function to use to aggregate gold probabilities in case of multiple golds.
+            log_prob_normalization (LogProbNormalization | None): The normalization to apply.
+            aggregation_function (Callable[[np.ndarray], float]): The function to use to aggregate gold probabilities in case of multiple golds.
         """
         self.log_prob_normalization = log_prob_normalization
         self.aggregation_function = aggregation_function
@@ -314,12 +337,9 @@ class NormalizedMultiChoiceProbability:
         """Computes the log likelihood probability: chance of choosing the best choice.
 
         Args:
-            gold_ixs (list[int]): All the gold choices indices
-            choices_logprob (list[float]): Summed log-probabilities of all the possible choices for the model, ordered as the choices.
-            unconditioned_logprob (list[float] | None): Unconditioned log-probabilities for PMI normalization, ordered as the choices.
-            choices_tokens (list[list[int]] | None): Tokenized choices for token normalization, ordered as the choices.
-            formatted_doc (Doc): Original document for the sample.
-                Used to get the original choices' length for possible normalization
+            doc (Doc): The document containing choices and gold indices.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: The probability of the best log-prob choice being a gold choice.
@@ -352,7 +372,7 @@ class NormalizedMultiChoiceProbability:
         return gold_idx_agg_prob
 
 
-class Probability:
+class Probability(SampleLevelComputation):
     def __init__(
         self,
         normalization: LogProbTokenNorm | None = None,
@@ -377,11 +397,9 @@ class Probability:
         """Computes the log likelihood probability: chance of choosing the best choice.
 
         Args:
-            gold_ixs (list[int]): All the gold choices indices
-            choices_logprob (list[float]): Summed log-probabilities of all the possible choices for the model, ordered as the choices.
-            unconditioned_logprob (list[float] | None): Unconditioned log-probabilities for PMI normalization, ordered as the choices.
-            choices_tokens (list[list[int]] | None): Tokenized choices for token normalization, ordered as the choices.
-            reference_texts (list[str] | None): Reference texts for token normalization, ordered as the choices.
+            doc (Doc): The document containing choices and gold indices.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: The probability of the best log-prob choice being a gold choice.
@@ -405,23 +423,24 @@ class Probability:
         return self.aggregation_function(probs)
 
 
-class Recall:
-    def __init__(self, at: int) -> None:
-        """Recall metric class. It checks if the top `at` best choices include one of the golds or not.
+class Recall(SampleLevelComputation):
+    def __init__(self, k: int) -> None:
+        """Recall metric class. It checks if the top `k` best choices include one of the golds or not.
 
         Args:
-            at (int): Depth level of the recall.
+            k (int): Depth level of the recall.
                 Recall at 1 is equivalent to a logprob accuracy without normalization.
         """
-        self.recall_depth = at
+        self.recall_depth = k
 
     def compute(self, doc: Doc, model_response: ModelResponse, **kwargs) -> int:
         """Computes the recall at the requested depth level: looks at the `n` best predicted choices (with the
         highest log probabilities) and see if there is an actual gold among them.
 
         Args:
-            gold_ixs (list[int]): All the gold choices indices
-            choices_logprob (list[float]): Summed log-probabilities of all the possible choices for the model, ordered as the choices.
+            doc (Doc): The document containing choices and gold indices.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             int: Score: 1 if one of the top level predicted choices was correct, 0 otherwise.
@@ -434,7 +453,7 @@ class Recall:
         return int(any(ix in gold_ixs for ix in np.array(choices_logprobs).argsort()[::-1][: self.recall_depth]))
 
 
-class MRR:
+class MRR(SampleLevelComputation):
     def __init__(self, length_normalization: bool = False):
         """A mean reciprocal rank class.
 
@@ -443,14 +462,13 @@ class MRR:
         """
         self.length_normalization = length_normalization
 
-    def compute(self, model_response: ModelResponse, doc: Doc, **kwargs) -> float:
+    def compute(self, doc: Doc, model_response: ModelResponse, **kwargs) -> float:
         """Mean reciprocal rank. Measures the quality of a ranking of choices (ordered by correctness).
 
         Args:
-            gold_ixs (list[int]): All the gold choices indices
-            choices_logprob (list[float]): Summed log-probabilities of all the possible choices for the model, ordered as the choices.
-            formatted_doc (Doc): Original document for the sample.
-                Used to get the original choices' length for possible normalization
+            model_response (ModelResponse): The model's response containing logprobs.
+            doc (Doc): The document containing choices and gold indices.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: MRR score.
@@ -468,19 +486,22 @@ class MRR:
         return 1.0 / (min(ranked_choices) + 1)
 
 
-def acc_golds_likelihood(doc, model_response, **kwargs) -> int:
-    """Tests if at least one of predicted gold targets' argmax of logits equals the gold.
+class AccGoldLikelihood(SampleLevelComputation):
+    def compute(self, doc, model_response, **kwargs) -> int:
+        """Tests if at least one of predicted gold targets' argmax of logits equals the gold.
 
-    Args:
-        argmax_logits_eq_gold_list (list[int]): List of scores 1/0 indicating whether the argmax of logits equals the gold
+        Args:
+            doc: The document containing gold references.
+            model_response: The model's response containing argmax logits.
+            **kwargs: Additional keyword arguments.
 
-    Returns:
-        int: 1 if at least one of the possible golds has argmax of logits == gold, 0 otherwise
-    """
-    return int(any(model_response.argmax_logits_eq_gold))
+        Returns:
+            int: 1 if at least one of the possible golds has argmax of logits == gold, 0 otherwise.
+        """
+        return int(any(model_response.argmax_logits_eq_gold))
 
 
-class ROUGE:
+class ROUGE(SampleLevelComputation):
     ALLOWED_ROUGE_METHODS = ["rouge1", "rouge2", "rougeL", "rougeLsum"]
 
     def __init__(
@@ -531,8 +552,9 @@ class ROUGE:
         """Computes the metric(s) over a list of golds and predictions for one single sample.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float or dict: Aggregated score over the current sample's items.
@@ -541,7 +563,7 @@ class ROUGE:
         from rouge_score import rouge_scorer
 
         golds = doc.get_golds()
-        predictions = model_response.text
+        predictions = model_response.final_text
 
         if self.scorer is None:
             self.scorer = rouge_scorer.RougeScorer(self.methods, tokenizer=self.tokenizer)
@@ -597,7 +619,7 @@ class ROUGE:
         return {method: result[method].mid.fmeasure * 100 for method in self.methods}
 
 
-class BertScore:
+class BertScore(SampleLevelComputation):
     def __init__(
         self,
         normalize_gold: Callable | None = None,
@@ -631,14 +653,15 @@ class BertScore:
         """Computes the prediction, recall and f1 score using the bert scorer.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             dict: Scores over the current sample's items.
         """
         golds = doc.get_golds()
-        predictions = model_response.text
+        predictions = model_response.final_text
         
         # TODO maybe add a setting to turn reasoning parsing on/off
         predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
@@ -663,15 +686,15 @@ class BertScore:
         return {"BERTScore-P": p[0].item(), "BERTScore-R": r[0].item(), "BERTScore-F": f[0].item()}
 
 
-class Extractiveness:
+class Extractiveness(SampleLevelComputation):
     def __init__(
         self,
         normalize_input: callable = remove_braces,
         normalize_pred: callable = remove_braces_and_strip,
         input_column: str = "text",
+        language: Literal["en", "de", "fr", "it"] = "en",
     ):
-        """
-        Extractiveness metric class.
+        """Extractiveness metric class.
 
         Args:
             normalize_input (callable, optional): Function to normalize the input strings.
@@ -679,31 +702,33 @@ class Extractiveness:
             normalize_pred (callable, optional): Function to use to normalize the predicted strings.
                 Defaults to remove_braces_and_strip from lighteval.metrics.normalizations if no normalization is applied.
             input_column (str): Column in the formatted_doc to use for the input. Defaults to "text".
+            language (str): Language ISO code for the input text. Defaults to "en".
         """
         self.stats_metric = None
         self.normalize_input = normalize_input
         self.normalize_pred = normalize_pred
         self.input_column = input_column
+        self.language = language
 
     def compute(self, doc: Doc, model_response: ModelResponse, **kwargs) -> dict[str, float]:
-        """
-        Compute the extractiveness of the predictions.
+        """Compute the extractiveness of the predictions.
 
         This method calculates coverage, density, and compression scores for a single
         prediction against the input text.
 
         Args:
-            predictions (list[str]): Predicted strings, a list of length 1.
-            formatted_doc (Doc): The formatted document.
+            doc (Doc): The document containing input text.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             dict[str, float]: The extractiveness scores.
         """
         if self.stats_metric is None:
-            self.stats_metric = DataStatsMetric()
+            self.stats_metric = DataStatsMetric(language=self.language)
 
         inp = doc.specific[self.input_column]
-        prediction = model_response.text[0]
+        prediction = model_response.final_text[0]
         if self.normalize_input:
             inp = self.normalize_input(inp)
         if self.normalize_pred:
@@ -720,15 +745,14 @@ class Extractiveness:
         }
 
 
-class Faithfulness:
+class Faithfulness(SampleLevelComputation):
     def __init__(
         self,
         normalize_input: Callable = remove_braces,
         normalize_pred: Callable = remove_braces_and_strip,
         input_column: str = "text",
     ):
-        """
-        Faithfulness metric class.
+        """Faithfulness metric class.
 
         Args:
             normalize_input (callable, optional): Function to normalize the input strings.
@@ -743,14 +767,14 @@ class Faithfulness:
         self.input_column = input_column
 
     def compute(self, doc: Doc, model_response: ModelResponse, **kwargs) -> dict[str, float]:
-        """
-        Compute the faithfulness of the predictions.
+        """Compute the faithfulness of the predictions.
 
         The SummaCZS (Summary Content Zero-Shot) model is used with configurable granularity and model variation.
 
         Args:
-            predictions (list[str]): Predicted strings, a list of length 1.
-            formatted_doc (Doc): The formatted document.
+            doc (Doc): The document containing input text.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             dict[str, float]: The faithfulness scores.
@@ -760,7 +784,7 @@ class Faithfulness:
                 granularity="sentence", model_name="vitc", imager_load_cache=False
             )  # , device=device)
         inp = doc.specific[self.input_column]
-        predictions = model_response.text
+        predictions = model_response.final_text
         prediction = predictions[0]
         if self.normalize_input:
             inp = self.normalize_input(inp)
@@ -773,7 +797,7 @@ class Faithfulness:
         return self.summac.score_one(inp, prediction)["score"]
 
 
-class BLEURT:
+class BLEURT(SampleLevelComputation):
     def __init__(self):
         """Creates a BLEURT scorer using a light bleurt-tiny-512 model.
         For more complex use cases, could also be Elron/bleurt-base-128
@@ -798,13 +822,14 @@ class BLEURT:
         """Uses the stored BLEURT scorer to compute the score on the current sample.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Score over the current sample's items.
         """
-        predictions = model_response.text
+        predictions = model_response.final_text
         golds = doc.get_golds()
         if len(predictions) == 1:
             predictions = predictions * len(golds)
@@ -816,7 +841,7 @@ class BLEURT:
         return scores.item()
 
 
-class BLEU:
+class BLEU(SampleLevelComputation):
     def __init__(self, n_gram: int):
         """BLEU scorer class. Relies on `nltk`'s sentencebleu for scoring.
         TODO: Will have to move this to sacrebleu.
@@ -830,22 +855,26 @@ class BLEU:
         """Computes the sentence level BLEU between the golds and each prediction, then takes the average.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): Predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Score over the current sample's items.
         """
+        import nltk
+
+        nltk.download("punkt_tab")
         golds = doc.get_golds()
-        predictions = model_response.text
+        predictions = model_response.final_text
         return np.mean([self._bleu_score(golds, p) for p in predictions])
 
     def _bleu_score(self, gold: list[str], pred: str):
         """Computes the BLEU score between a list of golds and the current prediction.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (str): One of the predicted strings
+            gold (list[str]): Reference targets.
+            pred (str): One of the predicted strings.
 
         Returns:
             float: Score over the current prediction.
@@ -858,7 +887,7 @@ class BLEU:
         return sentence_bleu([word_tokenize(g) for g in gold], word_tokenize(pred), weights=weights)
 
 
-class StringDistance:
+class StringDistance(SampleLevelComputation):
     def __init__(
         self,
         metric_types: list[str] | str,
@@ -884,13 +913,14 @@ class StringDistance:
         """Computes all the requested metrics on the golds and prediction.
 
         Args:
-            golds (list[str]): A list of possible golds. If it contains more than one item, only the first one is kept.
-            predictions (list[str]): Predicted strings.
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
            dict: The different scores computed
         """
-        predictions = model_response.text
+        predictions = model_response.final_text
         golds = doc.get_golds()
         if len(golds) > 1:
             logger.warning(
@@ -947,12 +977,15 @@ class StringDistance:
             Lee, Katherine, et al.
             "Deduplicating training data makes language models better."
             arXiv preprint arXiv:2107.06499 (2021).
+
+        Returns:
+            float: Edit similarity score between 0 and 1
         """
         edist = edit_distance(s1, s2)
         return 1.0 - edist / max(len(s1), len(s2)) if len(s1) > 0 and len(s2) > 0 else 0
 
 
-class JudgeLLM:
+class JudgeLLM(SampleLevelComputation):
     available_models_openai = ["gpt-3.5-turbo", "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-4o-2024-08-06"]
 
     def __init__(
@@ -966,6 +999,7 @@ class JudgeLLM:
         url: str | None = None,
         hf_provider: str | None = None,
         max_tokens: int | None = None,
+        backend_options: dict | None = None,
     ) -> None:
         logger.debug(f"Initializing JudgeLLM with backend: {judge_backend}, model: {judge_model_name}")
 
@@ -1012,9 +1046,11 @@ class JudgeLLM:
             url=url,
             hf_provider=hf_provider,
             max_tokens=max_tokens,
+            backend_options=backend_options,
         )
 
-    def compute(self, responses: list[ModelResponse], doc: list[Doc], **kwargs) -> list:
+    def compute(self, **kwargs) -> list:
+        # When deriving: Use model_responses/docs for batched eval, model_response/doc for non batched eval
         raise NotImplementedError("This method should be implemented in the subclass.")
 
 
@@ -1029,8 +1065,7 @@ class JudgeLLMSimpleQA(JudgeLLM):
         )
 
     def compute(self, responses: list[ModelResponse], doc: list[Doc], **kwargs) -> list:
-        """
-        Compute the score of a generative task using a llm as a judge.
+        """Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
         return scores for turn 1 and 2. Also returns user_prompt and judgement
         which are ignored later by the aggregator.
@@ -1038,7 +1073,7 @@ class JudgeLLMSimpleQA(JudgeLLM):
         questions = [formatted_doc.query for formatted_doc in doc]
         options = [formatted_doc.choices for formatted_doc in doc]
         golds = [formatted_doc.get_golds()[0] for formatted_doc in doc]
-        predictions = [response.text[0] for response in responses]
+        predictions = [response.final_text[0] for response in responses]
 
         # TODO maybe add a setting to turn reasoning parsing on/off
         predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
@@ -1060,18 +1095,20 @@ class JudgeLLMSimpleQA(JudgeLLM):
 
 
 class JudgeLLMMTBench(JudgeLLM):
-    def compute(self, model_response: list[ModelResponse | list[ModelResponse]], doc: Union[Doc | list[Doc]], **kwargs):
-        """
-        Compute the score of a generative task using a llm as a judge.
+    def compute(self, model_response: list[ModelResponse], doc: list[Doc], **kwargs):
+        """Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
         return scores for turn 1 and 2. Also returns user_prompt and judgement
         which are ignored later by the aggregator.
         """     
         import json
 
+        model_responses = as_list(model_response)
+        docs = as_list(doc)
+
         questions = doc.specific["multi_turn_queries"]
         golds = doc.specific.get("reference", [None, None])
-        predictions = [model_response.text[0], model_response.text[1]]
+        predictions = [model_response.final_text[0], model_response.text[1]]
         
         # TODO maybe add a setting to turn reasoning parsing on/off
         predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
@@ -1091,9 +1128,8 @@ class JudgeLLMMTBench(JudgeLLM):
 
 
 class JudgeLLMMixEval(JudgeLLM):
-    def compute(self, model_responses: list[ModelResponse], doc: list[Doc], **kwargs):
-        """
-        Compute the score of a generative task using a llm as a judge.
+    def compute(self, responses: list[ModelResponse], doc: list[Doc], **kwargs):
+        """Compute the score of a generative task using a llm as a judge.
         The generative task can be multiturn with 2 turns max, in that case, we
         return scores for turn 1 and 2. Also returns user_prompt and judgement
         which are ignored later by the aggregator.
@@ -1101,7 +1137,7 @@ class JudgeLLMMixEval(JudgeLLM):
         questions = [doc.specific["question"] for doc in doc]
         options = [doc.choices for doc in doc]
         golds = [doc.get_golds()[0] for doc in doc]
-        predictions = [response.text[0] for response in model_responses]
+        predictions = [response.final_text[0] for response in responses]
 
         # TODO maybe add a setting to turn reasoning parsing on/off
         predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
@@ -1114,142 +1150,44 @@ class JudgeLLMMixEval(JudgeLLM):
             metrics.append(
                 {
                     f"judge_score_{self.short_judge_name}": scores[i],
-                    f"user_prompt_{self.short_judge_name}": messages[i],
-                    f"judgement_{self.short_judge_name}": judgements[i],
+                    # f"user_prompt_{self.short_judge_name}": messages[i],
+                    # f"judgement_{self.short_judge_name}": judgements[i],
                 }
             )
 
         return metrics
 
 
-class MajAtK:
+class SamplingMetric:
+    """All sampling metrics we have defined below use the same set of normalization parameters and same behavior for the default sample_scoring_function.
+    This class just holds the normalization and applies it to all samples passed to preprocess, then uses the default sample function if not provided.
+    """
+
     def __init__(
         self,
-        k: int,
-        normalize_gold: Callable | None = None,
-        normalize_pred: Callable | None = None,
-        strip_strings: bool = False,
-        type_exact_match: str = "full",
-    ):
-        """An exact match class.
-
-        Args:
-            normalize_gold (callable, optional): Function to use to normalize the reference strings.
-                Defaults to None if no normalization is applied.
-            normalize_pred (callable, optional): Function to use to normalize the predicted strings.
-                Defaults to None if no normalization is applied.
-            strip_strings (bool, optional): Whether to strip both reference and predictions. Defaults to False.
-            type_exact_match (str, optional): Defines what type of match to apply (post normalization if present).
-                Can be any of `prefix`, `suffix` or `full`. Defaults to "full".
-                `prefix` checks if the prediction starts with the gold,
-                `suffix` if the prediction ends with the gold,
-                `full` if the prediction and gold are equal
-        """
-        self.k = k
-        self.normalize_gold = normalize_gold
-        self.normalize_pred = normalize_pred
-        self.strip_strings = strip_strings
-
-        if type_exact_match not in ["prefix", "suffix", "full"]:
-            # todo: we could add a set exact match
-            raise ValueError(
-                f"type_exact_match (used in parametrized_exact_match) must be one of prefix, suffix, or full. Was {type_exact_match} instead."
-            )
-        self.type_exact_match = type_exact_match
-
-    def compute(self, model_response: ModelResponse, doc: Doc, **kwargs):
-        """Computes the metric over a list of golds and predictions for one single sample.
-        It applies normalisation (if needed) to model prediction and gold, and takes the most frequent answer of all the available ones,
-        then compares it to the gold.
-
-        Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): k predicted strings
-
-        Returns:
-            float: Aggregated score over the current sample's items.
-        """
-        golds = doc.get_golds()
-        predictions = model_response.text
-        if len(golds) > 1:
-            raise Exception("Cannot compute maj@k with several golds")
-
-        gold = self.get_processed_gold(golds[0])
-        all_answers = []
-        for pred in predictions[: self.k]:
-            all_answers.append(self.get_processed_pred(pred=pred))
-        majority_prediction = max(all_answers, key=all_answers.count)
-        return self.compute_score(majority_prediction, gold)
-
-    def get_processed_gold(self, gold: str) -> str:
-        if self.strip_strings:
-            gold = gold.strip()
-
-        if self.normalize_gold:
-            gold = self.normalize_gold(gold)
-
-        return gold
-
-    def get_processed_pred(self, pred: str) -> str:
-        
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
-        
-        if not pred:
-            return ""
-
-        if self.strip_strings:
-            pred = pred.strip()
-
-        if self.normalize_pred:
-            pred = self.normalize_pred(pred)
-
-        return pred
-
-    def compute_score(self, pred: str, gold: str) -> int:
-        if self.type_exact_match == "prefix":
-            return 1 if pred.startswith(gold) else 0
-        if self.type_exact_match == "suffix":
-            return 1 if pred.endswith(gold) else 0
-        return 1 if gold == pred else 0
-
-
-class PassAtK:
-    def __init__(
-        self,
-        k: int,
-        n: int | None = None,
-        normalize_gold: Callable | None = None,
-        normalize_pred: Callable | None = None,
+        normalize: Callable | str | None = None,
         strip_strings: bool = False,
         sample_scoring_function: Callable[[Doc, ModelResponse], float] | str | None = None,
     ):
-        """Computing pass at k
+        if isinstance(normalize, str):
+            import lighteval.metrics.normalizations
 
-        Args:
-            k (int): Threshold for the number of successful attempts.
-            n (int): Number of samples to generate
-            normalize_gold (callable, optional): Function to use to normalize the reference strings.
-                Defaults to None if no normalization is applied.
-            normalize_pred (callable, optional): Function to use to normalize the predicted strings.
-                Defaults to None if no normalization is applied.
-            strip_strings (bool, optional): Whether to strip both reference and predictions. Defaults to False.
-            sample_scoring_function (callable or str, optional): Function to use to score each sample.
-                Either pass the full function (should take a string prediction and a string gold, and return a score between 0 and 1)
-                a string (any of `prefix`, `suffix` or `full`) to define the type of exact match that you want, or nothing to defaults to "full".
-                    `prefix` checks if the prediction starts with the gold,
-                    `suffix` if the prediction ends with the gold,
-                    `full` if the prediction and gold are equal
-        """
-        self.k = k
-        self.n = n
-        self.normalize_gold = normalize_gold
-        self.normalize_pred = normalize_pred
+            allowed_normalizations = inspect.getmembers(
+                lighteval.metrics.normalizations, inspect.isfunction
+            )  # -> {name: fn}
+            if normalize in allowed_normalizations:
+                self.normalize = allowed_normalizations[normalize]
+            else:
+                raise ValueError(f"Unknown normalization function: {normalize}")
+        else:
+            self.normalize = normalize
         self.strip_strings = strip_strings
 
-        # Managed the logic of the per prediction of sample scoring
         if callable(sample_scoring_function):
-            self.score_sample = sample_scoring_function
+            self.compute_score = sample_scoring_function
+            self.type_exact_match = None
+        elif isinstance(sample_scoring_function, SampleLevelComputation):
+            self.compute_score = sample_scoring_function.compute
             self.type_exact_match = None
         else:
             if isinstance(sample_scoring_function, str):
@@ -1260,7 +1198,137 @@ class PassAtK:
                 self.type_exact_match = sample_scoring_function
             else:
                 self.type_exact_match = "full"
-            self.score_sample = self.default_sample_scoring
+            self.compute_score = self.default_sample_scoring
+
+    def preprocess(self, text: str) -> str:
+
+        text = remove_reasoning_tags(text, REASONING_TAG_PAIRS)
+
+        if not text:
+            return ""
+
+        if self.strip_strings:
+            text = text.strip()
+
+        if self.normalize is not None:
+            text = self.normalize(text)
+
+        return text
+
+    def default_sample_scoring(self, doc: Doc, model_response: ModelResponse) -> int:
+        gold = doc.get_golds()[0]
+        pred = model_response.final_text[0]
+        if self.type_exact_match == "prefix":
+            return 1 if pred.startswith(gold) else 0
+        if self.type_exact_match == "suffix":
+            return 1 if pred.endswith(gold) else 0
+        return 1 if gold == pred else 0
+
+    def name_metrics(self) -> str | list[str]:
+        raise NotImplementedError
+
+
+class AvgAtN(SamplingMetric, SampleLevelComputation):
+    def __init__(self, n: int | None = None, **kwargs):
+        """Sample score averages all the individual n predictions scores.
+
+        Args:
+            n (int | None): Number of samples to generate
+            **kwargs: Additional keyword arguments.
+        """
+        super().__init__(**kwargs)
+        self.n = n
+        self.attribute_must_be_set = ["n"]
+
+    def compute(self, doc: Doc, model_response: ModelResponse, **kwargs):
+        """Computes the metric over a list of golds and predictions for one single sample.
+        It applies normalisation (if needed) to model prediction and gold, and takes the most frequent answer of all the available ones,
+        then compares it to the gold.
+
+        Args:
+            model_response (ModelResponse): The model's response containing predictions.
+            doc (Doc): The document containing gold references.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            float: Aggregated score over the current sample's items.
+        """
+        all_scores = []
+        for i in range(self.n):
+            all_scores.append(self.compute_score(doc, model_response[i]))
+
+        avg_score = np.mean(all_scores)
+        return avg_score
+
+    def num_samples(self):
+        return self.n
+
+
+class MajAtN(SamplingMetric, SampleLevelComputation):
+    def __init__(self, n: int | None = None, **kwargs):
+        """An exact match class.
+
+        Args:
+            n (int): Total number of samples to generate
+            **kwargs: Additional keyword arguments.
+        """
+        super().__init__(**kwargs)
+
+        self.n = n
+        self.attribute_must_be_set = ["n"]
+
+    def compute(self, doc: Doc, model_response: ModelResponse, **kwargs):
+        """Computes the metric over a list of golds and predictions for one single sample.
+        It applies normalisation (if needed) to model prediction and gold, and takes the most frequent answer of all the available ones,
+        then compares it to the gold.
+
+        Args:
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            float: Aggregated score over the current sample's items.
+        """
+        if self.n is None:
+            raise Exception("You did not set the value of n")
+
+        golds = doc.get_golds()
+        if len(golds) > 1:
+            raise Exception("Cannot compute maj@n with several golds")
+
+        processed_choices = [self.preprocess(text=g) for g in doc.get_golds()]
+        new_doc = Doc(
+            choices=processed_choices,
+            query=doc.query,
+            gold_index=doc.gold_index,
+        )
+        all_answers = []
+        for pred in model_response.final_text[: self.n]:
+            all_answers.append(self.preprocess(text=pred))
+        majority_prediction = max(all_answers, key=all_answers.count)
+        new_model_response = ModelResponse(
+            text=[majority_prediction],
+        )
+        return self.compute_score(new_doc, new_model_response)
+
+    def num_samples(self):
+        return self.n
+
+
+class PassAtK(SamplingMetric, SampleLevelComputation):
+    def __init__(self, k: int | None = None, n: int | None = None, **kwargs):
+        """Computing pass at k with an estimator
+
+        Args:
+            k (int | None): Number of correct samples threshold
+            n (int | None): Total number of samples to generate.
+            **kwargs: Additional keyword arguments.
+        """
+        super().__init__(**kwargs)
+        self.k = k
+        self.n = n
+        self.attribute_must_be_set = ["k"]
 
     def compute(self, doc: Doc, model_response: ModelResponse, **kwargs) -> float:
         """Computes the metric over a list of golds and predictions for one single item with possibly many samples.
@@ -1268,24 +1336,25 @@ class PassAtK:
         then aggregates the scores over the samples using a pass@k.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): k predicted strings
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Aggregated score over the current sample's items.
         """
         golds = doc.get_golds()
-        predictions = model_response.text
         if len(golds) > 1:
             raise Exception("Cannot compute pass@k with several golds")
 
+        predictions = model_response.final_text
         if self.n is None:
             self.n = len(predictions)
             logger.warning("n undefined in the pass@k. We assume it's the same as the sample's number of predictions.")
         elif len(predictions) < self.n:
             logger.warning(f"Number of predictions is less than {self.n} for pass@k.")
 
-        processed_choices = [self.get_processed_gold(gold=g) for g in doc.choices]
+        processed_choices = [self.preprocess(g) for g in doc.choices]
         new_doc = Doc(
             choices=processed_choices,
             query=doc.query,
@@ -1294,48 +1363,13 @@ class PassAtK:
 
         all_scores = []
         for pred in predictions[: self.n]:
-            cur_pred = self.get_processed_pred(pred=pred)
+            cur_pred = self.preprocess(pred)
             new_model_response = ModelResponse(
                 text=[cur_pred],
             )
-            all_scores.append(self.score_sample(new_doc, new_model_response))
+            all_scores.append(self.compute_score(doc=new_doc, model_response=new_model_response))
 
         return self.pass_at_k(all_scores)
-
-    def get_processed_gold(self, gold: str) -> str:
-        if self.strip_strings:
-            gold = gold.strip()
-
-        if self.normalize_gold:
-            gold = self.normalize_gold(gold)
-
-        return gold
-
-    def get_processed_pred(self, pred: str) -> str:
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
-
-        if not pred:
-            return ""
-
-        if self.strip_strings:
-            pred = pred.strip()
-
-        if self.normalize_pred:
-            pred = self.normalize_pred(pred)
-
-        return pred
-
-    def default_sample_scoring(self, doc, model_response) -> int:
-        pred = model_response.text[0]
-        gold = doc.get_golds()[0]
-
-        if self.type_exact_match == "prefix":
-            return 1 if pred.startswith(gold) else 0
-        if self.type_exact_match == "suffix":
-            return 1 if pred.endswith(gold) else 0
-        return 1 if gold == pred else 0
 
     def pass_at_k(self, all_scores: list[int]) -> float:
         """Algo from https://arxiv.org/pdf/2107.03374"""
@@ -1345,72 +1379,59 @@ class PassAtK:
 
         return 1.0 - np.prod(1.0 - self.k / np.arange(self.n - c + 1, self.n + 1))
 
+    def num_samples(self):
+        return self.n if self.n is not None else self.k
 
-class GPassAtK:
+
+class GPassAtK(SamplingMetric, SampleLevelComputation):
     def __init__(
         self,
-        k: Union[int, list[int]],
+        k: Union[int, list[int]] | None = None,
         n: int | None = None,
         thresholds: list[float] = [0.0, 0.25, 0.5, 0.75, 1.0],
-        normalize_gold: Callable | None = None,
-        normalize_pred: Callable | None = None,
-        strip_strings: bool = False,
-        sample_scoring_function: Callable[[Doc, ModelResponse], float] | str | None = None,
+        name_prefix: str = None,
+        **kwargs,
     ):
         """Computing G-Pass@k from http://arxiv.org/abs/2412.13147
 
         Args:
-            k (int, list): The number of successful attempts to be considered.
-            n (int): Number of samples to generate.
-            thresholds (list): Thresholds to control successful attempts in k generate.
-            normalize_gold (callable, optional): Function to use to normalize the reference strings.
-                Defaults to None if no normalization is applied.
-            normalize_pred (callable, optional): Function to use to normalize the predicted strings.
-                Defaults to None if no normalization is applied.
-            strip_strings (bool, optional): Whether to strip both reference and predictions. Defaults to False.
-            sample_scoring_function (callable or str, optional): Function to use to score each sample.
-                Either pass the full function (should take a string prediction and a string gold, and return a score between 0 and 1)
-                a string (any of `prefix`, `suffix` or `full`) to define the type of exact match that you want, or nothing to defaults to "full".
-                    `prefix` checks if the prediction starts with the gold,
-                    `suffix` if the prediction ends with the gold,
-                    `full` if the prediction and gold are equal
+            k (Union[int, list[int]] | None): Number of correct samples threshold
+            n (int | None): Total number of samples to generate.
+            thresholds (list[float]): Thresholds to control successful attempts in k generate.
+            name_prefix (str | None): Prefix for the metric name.
+            **kwargs: Additional keyword arguments.
         """
-        self.k = as_list(k)
+        super().__init__(**kwargs)
+        self._k = k
         self.n = n
+        self.attribute_must_be_set = ["k"]
+
         self.thresholds = thresholds
-        self.normalize_gold = normalize_gold
-        self.normalize_pred = normalize_pred
-        self.strip_strings = strip_strings
+        self.name = (f"{name_prefix}_" if name_prefix else "") + "g-pass@"
 
-        # Managed the logic of the per prediction of sample scoring
-        if callable(sample_scoring_function):
-            self.score_sample = sample_scoring_function
-            self.type_exact_match = None
-        else:
-            if isinstance(sample_scoring_function, str):
-                if sample_scoring_function not in ["prefix", "suffix", "full"]:
-                    raise ValueError(
-                        f"type_exact_match (used in parametrized_exact_match) must be one of prefix, suffix, or full. Was {sample_scoring_function} instead."
-                    )
-                self.type_exact_match = sample_scoring_function
-            else:
-                self.type_exact_match = "full"
-            self.score_sample = self.default_sample_scoring
+    @property
+    def k(self):
+        return as_list(self._k)
 
-    def compute(self, model_response: ModelResponse, doc: Doc, **kwargs) -> float:
+    @k.setter
+    def k(self, new_val):
+        self._k = as_list(new_val)
+
+    def compute(self, doc: Doc, model_response: ModelResponse, **kwargs):
         """Computes the metric over a list of golds and predictions for one single item with possibly many samples.
         It applies normalisation (if needed) to model prediction and gold, computes their per prediction score,
         then aggregates the scores over the samples using a pass@k.
 
         Args:
-            golds (list[str]): Reference targets
-            predictions (list[str]): k predicted strings
+            model_response (ModelResponse): The model's response containing predictions.
+            doc (Doc): The document containing gold references.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             float: Aggregated score over the current sample's items.
         """
         golds = doc.get_golds()
-        predictions = model_response.text
+        predictions = model_response.final_text
 
         if len(golds) > 1:
             raise Exception("Cannot compute G-Pass@k with several golds")
@@ -1423,7 +1444,7 @@ class GPassAtK:
         elif len(predictions) < self.n:
             logger.warning(f"Number of predictions is less than {self.n} for G-Pass@k.")
 
-        processed_choices = [self.get_processed_gold(gold=g) for g in doc.choices]
+        processed_choices = [self.preprocess(text=g) for g in doc.choices]
         new_doc = Doc(
             choices=processed_choices,
             query=doc.query,
@@ -1432,47 +1453,13 @@ class GPassAtK:
 
         all_scores = []
         for pred in predictions[: self.n]:
-            cur_pred = self.get_processed_pred(pred=pred)
+            cur_pred = self.preprocess(text=pred)
             new_model_response = ModelResponse(
                 text=[cur_pred],
             )
-            all_scores.append(self.score_sample(new_doc, new_model_response))
+            all_scores.append(self.compute_score(new_doc, new_model_response))
 
         return self.g_pass_at_k(all_scores)
-
-    def get_processed_gold(self, gold: str) -> str:
-        if self.strip_strings:
-            gold = gold.strip()
-
-        if self.normalize_gold:
-            gold = self.normalize_gold(gold)
-
-        return gold
-
-    def get_processed_pred(self, pred: str) -> str:
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
-
-        if not pred:
-            return ""
-
-        if self.strip_strings:
-            pred = pred.strip()
-
-        if self.normalize_pred:
-            pred = self.normalize_pred(pred)
-
-        return pred
-
-    def default_sample_scoring(self, doc: Doc, model_response: ModelResponse) -> int:
-        gold = doc.get_golds()[0]
-        pred = model_response.text[0]
-        if self.type_exact_match == "prefix":
-            return 1 if pred.startswith(gold) else 0
-        if self.type_exact_match == "suffix":
-            return 1 if pred.endswith(gold) else 0
-        return 1 if gold == pred else 0
 
     def g_pass_at_k(self, all_scores: list[int]) -> float:
         """Computation of G-Pass@k details from http://arxiv.org/abs/2412.13147"""
@@ -1503,20 +1490,23 @@ class GPassAtK:
         metrics = {}
         for k in ks:
             for t in thresholds:
-                metrics[f"G-Pass@{k}_{t}"] = compute_g_pass_at_k(n, c, k, t)
-            metrics[f"mG-Pass@{k}"] = compute_mg_pass_at_k(n, c, k)
+                metrics[f"{self.name}{k}_{t}"] = compute_g_pass_at_k(n, c, k, t)
+            metrics[f"m{self.name}{k}"] = compute_mg_pass_at_k(n, c, k)
 
         return metrics
 
     @property
-    def all_metrics(self):
+    def metric_names(self):
         ks: int = self.k
         thresholds: list[float] = self.thresholds
 
         metrics = []
         for k in ks:
             for t in thresholds:
-                metrics.append(f"G-Pass@{k}_{t}")
-            metrics.append(f"mG-Pass@{k}")
+                metrics.append(f"{self.name}{k}_{t}")
+            metrics.append(f"m{self.name}{k}")
 
         return metrics
+
+    def num_samples(self):
+        return self.n if self.n is not None else self.k

@@ -25,50 +25,60 @@ import logging
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Union
 
 import git
 import xxhash
 
-from lighteval.metrics.stderr import get_stderr_function
-from lighteval.models.abstract_model import ModelInfo
+from lighteval.metrics.utils.stderr import get_stderr_function
+from lighteval.models.abstract_model import ModelConfig
 from lighteval.models.model_output import ModelResponse
 from lighteval.tasks.lighteval_task import LightevalTask, LightevalTaskConfig
 from lighteval.tasks.requests import Doc
-from lighteval.utils.imports import is_nanotron_available
+from lighteval.utils.imports import is_package_available
 
 
 logger = logging.getLogger(__name__)
 
 
-if is_nanotron_available():
-    from nanotron.config import Config
+if is_package_available("nanotron"):
+    pass
 
 
 @dataclass(init=False)
 class GeneralConfigLogger:
-    """Logger for the evaluation parameters.
+    """Tracks general configuration and runtime information for model evaluations.
+
+    This logger captures key configuration parameters, model details, and timing information
+    to ensure reproducibility and provide insights into the evaluation process.
 
     Attributes:
-        lighteval_sha (str): Current commit sha of lighteval used for the evaluation (for reproducibility purposes)
-        num_fewshot_seeds (int): Number of seeds for the few-shot sampling.
-            If equal to or below 1, the experiment is done once only, with a single few-shot seed (equal to 0).
-            If above, the experiment is reproduced several times, with a different sampling/shuffling for the few-shot examples, which follows what is done in HELM for example.
-        override_batch_size (int): Manages the batch size.
-            If strictly positive, its value is used as the batch size for all experiments.
-            Else, the batch size is automatically inferred depending on what fits in memory.
-        max_samples (int): If set, cuts the number of samples per task to `max_samples`.
-            Note: This should only be used for debugging purposes!
-        job_id (int): If the evaluation suite is launched as a slurm job, stores the current job id.
-            Purely informative parameter used to retrieve scheduler logs.
-        start_time (float): Start time of the experiment. Logged at class init.
-        end_time (float): End time of the experiment. Logged when calling [`GeneralConfigLogger.log_end_time`]
-        total_evaluation_time_secondes (str): Inferred total evaluation time in seconds (from the start and end times).
-        model_name (str): Name of the currently evaluated model.
-        model_sha (str): Commit hash of the currently evaluated model on the hub if available.
-        model_dtype (str): Dtype of the model weights, as obtained when loading the model config.
-        model_size (str): Model size as obtained when loading the model config.
+        lighteval_sha (str): Git commit SHA of lighteval used for evaluation, enabling exact version reproducibility.
+            Set to "?" if not in a git repository.
 
+        num_fewshot_seeds (int): Number of random seeds used for few-shot example sampling.
+            - If <= 1: Single evaluation with seed=0
+            - If > 1: Multiple evaluations with different few-shot samplings (HELM-style)
+
+        max_samples (int, optional): Maximum number of samples to evaluate per task.
+            Only used for debugging - truncates each task's dataset.
+
+        job_id (int, optional): Slurm job ID if running on a cluster.
+            Used to cross-reference with scheduler logs.
+
+        start_time (float): Unix timestamp when evaluation started.
+            Automatically set during logger initialization.
+
+        end_time (float): Unix timestamp when evaluation completed.
+            Set by calling log_end_time().
+
+        total_evaluation_time_secondes (str): Total runtime in seconds.
+            Calculated as end_time - start_time.
+
+        model_config (ModelConfig): Complete model configuration settings.
+            Contains model architecture, tokenizer, and generation parameters.
+
+        model_name (str): Name identifier for the evaluated model.
+            Extracted from model_config.
     """
 
     # general
@@ -80,16 +90,8 @@ class GeneralConfigLogger:
     end_time: float = None
     total_evaluation_time_secondes: str = None
 
-    # model info
+    model_config: ModelConfig = None
     model_name: str = None
-    model_sha: str = None
-    model_dtype: str = None
-    model_size: str = None
-
-    generation_parameters: dict | None = None
-
-    # Nanotron config
-    config: "Config" = None
 
     def __init__(self) -> None:
         """Stores the current lighteval commit for reproducibility, and starts the evaluation timer."""
@@ -104,45 +106,28 @@ class GeneralConfigLogger:
     def log_args_info(
         self,
         num_fewshot_seeds: int,
-        max_samples: Union[None, int],
+        max_samples: int | None,
         job_id: str,
-        config: "Config" = None,
     ) -> None:
-        """
-        Logs the information about the arguments passed to the method.
+        """Logs the information about the arguments passed to the method.
 
         Args:
             num_fewshot_seeds (int): number of few-shot seeds.
-            override_batch_size (Union[None, int]): overridden batch size.
-                If strictly positive, its value is used as the batch size for all experiments.
-                Else, the batch size is automatically inferred depending on what fits in memory.
-            max_samples (Union[None, int]): maximum number of samples, if None, use all the samples available.
+            max_samples (int | None): maximum number of samples, if None, use all the samples available.
             job_id (str): job ID, used to retrieve logs.
-            config (optional): Nanotron Config
-
-        Returns:
-            None
-
         """
         self.num_fewshot_seeds = num_fewshot_seeds
         self.max_samples = max_samples
         self.job_id = job_id
-        self.config = config
 
-    def log_model_info(self, generation_parameters: dict, model_info: ModelInfo) -> None:
-        """
-        Logs the model information.
+    def log_model_info(self, model_config: ModelConfig) -> None:
+        """Logs the model information.
 
         Args:
             model_config: the model config used to initialize the model.
-            model_info (ModelInfo): Model information to be logged.
-
         """
-        self.generation_parameters = generation_parameters
-        self.model_name = model_info.model_name
-        self.model_sha = model_info.model_sha
-        self.model_dtype = model_info.model_dtype
-        self.model_size = model_info.model_size
+        self.model_config = model_config
+        self.model_name = model_config.model_name
 
     def log_end_time(self) -> None:
         self.end_time = time.perf_counter()
@@ -170,27 +155,10 @@ class DetailsLogger:
         """Experiment details of one single example of one task.
 
         Attributes:
-            example (str): Current task example query
-            instruction (str): Instruction prepended to the example and few shots.
-                For example "In this task, you are given information of type x. You need to predict y."
-            full_prompt (str): Expanded full prompt (instruction if present, then prompt)
-            num_effective_few_shots (int): Number of actual few shots used for the example.
-                This depends on the model context length and few-shots samples size: when using effective few-shots,
-                only `num_effective_few_shots` few-shot samples are kept, allowing
-                1) each of the used few-shot examples and the prompt to not be truncated
-                2) this context still allows the model to predict up to the requested max numbers of tokens within its remaining context size.
-            num_asked_few_shots (int): Initially asked number of few-shot samples.
-            predictions (list): List of the actual model predictions
-            input_tokens (list): List of the input tokens given to the model
-            cont_tokens (list): List of the continuation tokens predicted by the model
-            truncated (list): Size of the truncations (if it was needed to fit the prompt in the model context length)
-            padded (list): Size of the padding (if it was needed for the current example)
-            gold (list): Example gold targets (for generative evaluations)
-            pred_logits (list): List of the actual model predicted logits
-            choices (list): List of the possible choices (for multichoice/loglikelihood evaluations)
-            gold_index (list): Indices of the gold targets among the [`choices`]
-            metrics (dict): Metric name to current example score
-
+            doc (Doc): The [`Doc`] object containing the current example information.
+            model_response (ModelResponse): The [`ModelResponse`] object containing the model response for the current example.
+            metric (dict): The metric scores for the current example.
+                Example: {"accuracy": 0.5, "f1": 0.7, "exact_match": 0.6}
         """
 
         doc: Doc
@@ -209,11 +177,6 @@ class DetailsLogger:
             non_truncated (int): Total number of samples which did not need prompt truncation to fit the model context size for the current task.
             padded (int): Total umber of samples which needed padding during the batching step for the current task.
             non_padded (int): Total number of samples which did not need padding during the batching step for the current task.
-            effective_few_shots (float): Average effective few shots across all samples for the current task.
-                effective few shot is the number of few shots actually used to fit the prompt in the model context
-                length while allowing model generation of the expected size.
-            num_truncated_few_shots (int): Total number of samples which required truncated prompts to fit the model size for the current task.
-
         """
 
         hashes: dict = field(default_factory=dict)
@@ -221,8 +184,6 @@ class DetailsLogger:
         non_truncated: int = 0
         padded: int = 0
         non_padded: int = 0
-        effective_few_shots: float = 0
-        num_truncated_few_shots: int = 0
 
     @dataclass
     class CompiledDetailOverAllTasks:
@@ -236,11 +197,6 @@ class DetailsLogger:
             non_truncated (int): Total number of samples which did not need prompt truncation to fit the model context size across all tasks
             padded (int): Number of samples which needed padding during the batching step across all tasks.
             non_padded (int): Number of samples which did not need padding during the batching step across all tasks.
-            effective_few_shots (float): Average effective few shots across all samples across all tasks.
-                effective few shot is the number of few shots actually used to fit the prompt in the model context
-                length while allowing model generation of the expected size.
-            num_truncated_few_shots (int): Number of samples which required truncated prompts to fit the model size across all tasks.
-
         """
 
         hashes: dict = field(default_factory=dict)
@@ -248,12 +204,10 @@ class DetailsLogger:
         non_truncated: int = 0
         padded: int = 0
         non_padded: int = 0
-        num_truncated_few_shots: int = 0
 
     @dataclass
     class Hash:
-        """
-        Hashes important values for one sample ([`Doc`]) of one task ([`LightevalTask`])
+        """Hashes important values for one sample ([`Doc`]) of one task ([`LightevalTask`])
 
         Attributes:
             example (str): Hash of the [`Doc.query`]
@@ -270,8 +224,7 @@ class DetailsLogger:
 
     @dataclass
     class CompiledHash:
-        """
-        Hashes the aggregated hash values for all the sample ([`Doc`]) of one task ([`LightevalTask`])
+        """Hashes the aggregated hash values for all the sample ([`Doc`]) of one task ([`LightevalTask`])
 
         Attributes:
             example (str): Aggregated hash of all the [`Doc.query`] hashes for all samples of the current task.
@@ -308,12 +261,9 @@ class DetailsLogger:
 
         Args:
             task_name (str): Name of the current task of interest.
-            task (LightevalTask): Current task of interest.
             doc (Doc): Current sample that we want to store.
-            outputs (list[ModelResponse]): Model outputs for the current sample
-            metrics (_type_): Model scores for said sample on the current task's metrics.
-            llm_as_prompt_judgement (tuple[str, str]): Tuple containing the
-                prompt passed to the judge and the judgement for the current sample when using llm-as-judge metric.
+            model_response (ModelResponse): Model outputs for the current sample
+            metrics (dict): Model scores for said sample on the current task's metrics.
         """
         detail = self.Detail(doc, model_response, metrics)
         self.details[task_name].append(detail)
@@ -325,11 +275,7 @@ class DetailsLogger:
         self.hashes[task_name].append(hash)
 
     def aggregate(self):
-        """
-        Aggregate the details and hashes for each task and then for all tasks.
-        We end up with a dict of compiled details for each task and a dict of compiled details for all tasks.
-        """
-
+        """Hashes the details for each task and then for all tasks."""
         for task_name in self.hashes:
             compiled_hash = self.CompiledHash()
             compiled_hash.hash_examples = xxhash.xxh64(
@@ -382,15 +328,12 @@ class MetricsLogger:
             self.metrics_values[task_name][metric_name].append(metric_value)
 
     def aggregate(self, task_dict: dict[str, LightevalTask], bootstrap_iters: int = 1000):  # noqa: C901
-        """
-        Aggregate the metrics for each task and then for all tasks.
+        """Aggregate the metrics for each task and then for all tasks.
 
         Args:
             task_dict (dict[str, LightevalTask]): used to determine what aggregation function to use for each metric
             bootstrap_iters (int, optional): Number of runs used to run the statistical bootstrap. Defaults to 1000.
-
         """
-
         for task_name, metrics in self.metrics_values.items():
             task = task_dict[task_name]
 
@@ -400,13 +343,13 @@ class MetricsLogger:
                     # The metric is in a subset which has already been computed and saved
                     continue
 
+                aggregation = task.aggregation()[metric_name]
+
                 try:
-                    metric_result = task.aggregation()[metric_name](metric_values)
+                    metric_result = aggregation(metric_values)
                 except OverflowError:
                     logger.warning(f"{task_name}, {metric_name} got an OVERFLOW ERROR when aggregating.")
                     metric_result = float("nan")
-                except KeyError:
-                    continue
 
                 if isinstance(metric_result, dict):  # For some corpus level grouping metrics
                     self.metric_aggregated[task_name].update(metric_result)
@@ -419,7 +362,6 @@ class MetricsLogger:
                         None  # We skip stderr for some corpus metrics that return dicts, or if bootstrap_iters is 0
                     )
                 else:
-                    aggregation = task.aggregation()[metric_name]
                     stderr = get_stderr_function(aggregation=aggregation, number_experiments=bootstrap_iters)
                 if stderr is not None and len(metric_values) > 1:
                     try:
@@ -438,8 +380,8 @@ class MetricsLogger:
         # Build aggregation
         for k, metrics in self.metric_aggregated.items():
             if "|" in k:
-                suite, task, fewshot = k.split("|")
-                grouped_tasks[f"{suite}|{task.split(':')[0]}:_average|{fewshot}"].append(k)
+                task, fewshot = k.split("|")
+                grouped_tasks[f"{task.split(':')[0]}:_average|{fewshot}"].append(k)
             for metric, value in metrics.items():
                 suite_average[metric] = suite_average.get(metric, 0) + value
                 suite_nb[metric] = suite_nb.get(metric, 0) + 1

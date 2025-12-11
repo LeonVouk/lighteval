@@ -28,13 +28,21 @@ This file generally creates just a TASKS_TABLE and TASKS_GROUPS which are then i
 """
 
 import re
+from string import ascii_uppercase
 from typing import List, Tuple
 
-import lighteval.tasks.default_prompts as prompt
-from lighteval.metrics import Metrics
-from lighteval.tasks.default_prompts import LETTER_INDICES
+from lighteval.metrics.metrics import Metrics
+from lighteval.metrics.normalizations import LogProbCharNorm, helm_normalizer, math_normalizer
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
 from lighteval.tasks.requests import Doc
+from lighteval.tasks.tasks.arc import arc_prompt
+from lighteval.tasks.tasks.gsm8k import gsm8k_prompt
+from lighteval.tasks.tasks.math import math_prompt
+from lighteval.tasks.tasks.openbookqa import openbookqa_prompt
+from lighteval.tasks.tasks.piqa import piqa_prompt
+from lighteval.tasks.tasks.quac import quac_prompt
+from lighteval.tasks.tasks.triviaqa import triviaqa_prompt
+from lighteval.tasks.tasks.winogrande import winogrande_prompt
 
 
 _TASKS_STRINGS: List[Tuple[LightevalTaskConfig, str]] = []
@@ -47,7 +55,7 @@ def commonsense_qa_prompt(line, task_name: str = None):
         task_name=task_name,
         query=line["question"],
         choices=[f" {c}" for c in line["choices"]["text"]],
-        gold_index=LETTER_INDICES.index(line["answerKey"].strip()),
+        gold_index=ascii_uppercase.index(line["answerKey"].strip()),
         instruction="",
     )
 
@@ -78,7 +86,7 @@ def hellaswag_prompt(line, task_name: str = None):
         query=preprocess(line["activity_label"] + ": " + ctx),
         choices=[" " + preprocess(ending) for ending in line["endings"]],
         gold_index=int(line["label"]) if line["label"] != "" else -1,  # -1 for test
-        # "metric": "choices_loglikelihood",
+        # "metrics": "choices_loglikelihood",
     )
 
 
@@ -88,26 +96,38 @@ COMMON_SENSE_REASONING_TASKS = [
         prompt_function=hellaswag_prompt,
         hf_repo="hellaswag",
         hf_subset="default",
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="winogrande",
-        prompt_function=prompt.winogrande,
+        prompt_function=winogrande_prompt,
         hf_repo="winogrande",
         hf_subset="winogrande_xl",
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="piqa",
-        prompt_function=prompt.piqa_harness,
+        prompt_function=piqa_prompt,
         hf_repo="piqa",
         hf_subset="plain_text",
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
@@ -116,39 +136,55 @@ COMMON_SENSE_REASONING_TASKS = [
         hf_repo="lighteval/siqa",
         hf_subset="default",
         hf_avail_splits=["train", "validation"],
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="openbookqa",
-        prompt_function=prompt.openbookqa,
+        prompt_function=openbookqa_prompt,
         hf_repo="openbookqa",
         hf_subset="main",
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="arc:easy",
-        prompt_function=prompt.arc,
+        prompt_function=arc_prompt,
         hf_repo="ai2_arc",
         hf_subset="ARC-Easy",
         evaluation_splits=["test"],
         generation_size=1,
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="arc:challenge",
-        prompt_function=prompt.arc,
+        prompt_function=arc_prompt,
         hf_repo="ai2_arc",
         hf_subset="ARC-Challenge",
         evaluation_splits=["test"],
         generation_size=1,
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
@@ -156,15 +192,19 @@ COMMON_SENSE_REASONING_TASKS = [
         prompt_function=commonsense_qa_prompt,
         hf_repo="commonsense_qa",
         hf_subset="default",
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
-        trust_dataset=True,
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         stop_sequence=["\n"],
     ),
 ]
 
 
 # 0 short for common sense
-COMMON_SENSE_REASONING_STRING = [(t, f"custom|{t.name}|0|1") for t in COMMON_SENSE_REASONING_TASKS]
+COMMON_SENSE_REASONING_STRING = [(t, f"custom|{t.name}|0") for t in COMMON_SENSE_REASONING_TASKS]
 _TASKS_STRINGS.extend(COMMON_SENSE_REASONING_STRING)
 _TASKS += COMMON_SENSE_REASONING_TASKS
 
@@ -183,12 +223,13 @@ def natural_questions_prompt(line, task_name: str = None):
 WORLD_KNOWLEDGE_TASKS = [
     LightevalTaskConfig(
         name="trivia_qa",
-        prompt_function=prompt.triviaqa,
+        prompt_function=triviaqa_prompt,
         hf_repo="trivia_qa",
         hf_subset="rc.nocontext",
-        metric=[Metrics.quasi_exact_match],
+        metrics=[
+            Metrics.exact_match(sample_params={"normalize_gold": helm_normalizer, "normalize_pred": helm_normalizer})
+        ],
         generation_size=20,
-        trust_dataset=True,
         stop_sequence=["\n", ".", ","],
     ),
     LightevalTaskConfig(
@@ -196,16 +237,17 @@ WORLD_KNOWLEDGE_TASKS = [
         prompt_function=natural_questions_prompt,
         hf_repo="lighteval/natural_questions_clean",
         hf_subset="default",
-        metric=[Metrics.quasi_exact_match],
+        metrics=[
+            Metrics.exact_match(sample_params={"normalize_gold": helm_normalizer, "normalize_pred": helm_normalizer})
+        ],
         generation_size=20,
-        trust_dataset=True,
         stop_sequence=["\n", ".", ","],
     ),
 ]
 
 
-WORLD_KNOWLEDGE_STRING = [(t, f"custom|{t.name}|5|1") for t in WORLD_KNOWLEDGE_TASKS]
-# WORLD_KNOWLEDGE_STRING = {t: f'custom|{t.name}|0|1' for t in WORLD_KNOWLEDGE_TASKS}
+WORLD_KNOWLEDGE_STRING = [(t, f"custom|{t.name}|5") for t in WORLD_KNOWLEDGE_TASKS]
+# WORLD_KNOWLEDGE_STRING = {t: f'custom|{t.name}|0' for t in WORLD_KNOWLEDGE_TASKS}
 _TASKS_STRINGS.extend(WORLD_KNOWLEDGE_STRING)
 _TASKS += WORLD_KNOWLEDGE_TASKS
 
@@ -226,24 +268,24 @@ READING_COMP_TASKS = [
         prompt_function=boolq_prompt,
         hf_repo="super_glue",
         hf_subset="boolq",
-        metric=[Metrics.target_perplexity],
-        trust_dataset=True,
+        metrics=[Metrics.target_perplexity],
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
         name="quac",
-        prompt_function=prompt.quac,
+        prompt_function=quac_prompt,
         hf_repo="lighteval/quac_helm",
         hf_subset="deault",
-        metric=[Metrics.quasi_exact_match],
+        metrics=[
+            Metrics.exact_match(sample_params={"normalize_gold": helm_normalizer, "normalize_pred": helm_normalizer})
+        ],
         generation_size=20,
-        trust_dataset=True,
         stop_sequence=["\n", ".", ","],
     ),
 ]
 
 
-READING_COMP_STRING = [(t, f"custom|{t.name}|0|1") for t in READING_COMP_TASKS]
+READING_COMP_STRING = [(t, f"custom|{t.name}|0") for t in READING_COMP_TASKS]
 _TASKS_STRINGS.extend(READING_COMP_STRING)
 _TASKS += READING_COMP_TASKS
 
@@ -255,17 +297,17 @@ class CustomMathEvaluationTask(LightevalTaskConfig):
     def __init__(
         self,
         name,
-        prompt_function=prompt.math,
+        prompt_function=math_prompt,
         hf_repo="DigitalLearningGmbH/MATH-lighteval",
         hf_subset=None,
-        metric=[Metrics.quasi_exact_match_math],
+        metrics=[
+            Metrics.exact_match(sample_params={"normalize_gold": math_normalizer, "normalize_pred": math_normalizer})
+        ],
         hf_avail_splits=None,
         evaluation_splits=["test"],
         few_shots_split=None,
         few_shots_select=None,
-        suite=["custom"],
         generation_size=40,
-        trust_dataset=True,
         stop_sequence=None,
     ):
         super().__init__(
@@ -273,14 +315,12 @@ class CustomMathEvaluationTask(LightevalTaskConfig):
             prompt_function=prompt_function,
             hf_repo=hf_repo,
             hf_subset=hf_subset,
-            metric=metric,
+            metrics=metrics,
             hf_avail_splits=hf_avail_splits,
             evaluation_splits=evaluation_splits,
             few_shots_split=few_shots_split,
             few_shots_select=few_shots_select,
-            suite=suite,
             generation_size=generation_size,
-            trust_dataset=trust_dataset,
             stop_sequence=(stop_sequence if stop_sequence is not None else ["\n"]),
         )
 
@@ -296,19 +336,19 @@ MATH_TASKS = [
 ]
 GSM8K = LightevalTaskConfig(
     name="gsm8k",
-    prompt_function=prompt.gsm8k,
+    prompt_function=gsm8k_prompt,
     hf_repo="gsm8k",
     hf_subset="main",
     hf_avail_splits=["train", "test"],
     evaluation_splits=["test"],
-    metric=[Metrics.perfect_exact_match],
+    metrics=[Metrics.perfect_exact_match],
     generation_size=10,
     stop_sequence=["\n"],
 )
 
 
-MATH_STRING = [(t, f"custom|{t.name}|4|1") for t in MATH_TASKS]
-GSM8K_STRING = [(GSM8K, f"custom|{GSM8K.name}|8|1")]
+MATH_STRING = [(t, f"custom|{t.name}|4") for t in MATH_TASKS]
+GSM8K_STRING = [(GSM8K, f"custom|{GSM8K.name}|8")]
 _TASKS_STRINGS.extend(MATH_STRING)
 _TASKS_STRINGS.extend(GSM8K_STRING)
 _TASKS += MATH_TASKS + [GSM8K]
@@ -319,10 +359,10 @@ def mmlu_harness(line, task_name: str = None):
     topic = line["subject"]
     prompt = f"The following are multiple choice questions (with answers) about {topic.replace('_', ' ')}.\n\n"
     prompt += line["question"] + "\n"
-    prompt += "".join([f"{key}. {choice}\n" for key, choice in zip(LETTER_INDICES, line["choices"])])
+    prompt += "".join([f"{key}. {choice}\n" for key, choice in zip(ascii_uppercase, line["choices"])])
     prompt += "Answer:"
 
-    gold_ix = LETTER_INDICES.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
+    gold_ix = ascii_uppercase.index(line["answer"]) if isinstance(line["answer"], str) else line["answer"]
     "__few_shots" in line and line["__few_shots"] is True  # We are adding few shots
 
     return Doc(
@@ -356,15 +396,17 @@ class CustomMMLUEvaluationTask(LightevalTaskConfig):
         prompt_function=mmlu_prompt,
         hf_repo="lighteval/mmlu",
         hf_subset=None,
-        #  metric=[Metrics.loglikelihood_acc_single_token],
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         hf_avail_splits=None,
         evaluation_splits=["test"],
         few_shots_split="dev",
         few_shots_select=None,
-        suite=None,
         generation_size=-1,
-        trust_dataset=True,
         stop_sequence=None,
     ):
         super().__init__(
@@ -372,14 +414,12 @@ class CustomMMLUEvaluationTask(LightevalTaskConfig):
             prompt_function=prompt_function,
             hf_repo=hf_repo,
             hf_subset=hf_subset,
-            metric=metric,
+            metrics=metrics,
             hf_avail_splits=hf_avail_splits,
             evaluation_splits=evaluation_splits,
             few_shots_split=few_shots_split,
             few_shots_select=few_shots_select,
-            suite=suite,
             generation_size=generation_size,
-            trust_dataset=trust_dataset,
             stop_sequence=(stop_sequence if stop_sequence is not None else ["\n"]),
         )
 
@@ -447,8 +487,8 @@ MMLU_TASKS = [
 ]
 
 
-# MMLU_STRING = {t: f'custom|{t.name}|5|1' for t in MMLU_TASKS}
-MMLU_STRING = [(t, f"custom|{t.name}|0|1") for t in MMLU_TASKS]
+# MMLU_STRING = {t: f'custom|{t.name}|5' for t in MMLU_TASKS}
+MMLU_STRING = [(t, f"custom|{t.name}|0") for t in MMLU_TASKS]
 _TASKS_STRINGS.extend(MMLU_STRING)
 _TASKS += MMLU_TASKS
 
@@ -470,14 +510,12 @@ class CustomBBHEvaluationTask(LightevalTaskConfig):
         prompt_function=bbh_prompt,
         hf_repo="lighteval/big_bench_hard",
         hf_subset=None,
-        metric=[Metrics.exact_match],
+        metrics=[Metrics.exact_match],
         hf_avail_splits=["train"],
         evaluation_splits=["train"],
         few_shots_split="train",
         few_shots_select=None,
-        suite=None,
         generation_size=4,
-        trust_dataset=True,
         stop_sequence=None,
     ):
         super().__init__(
@@ -485,14 +523,12 @@ class CustomBBHEvaluationTask(LightevalTaskConfig):
             prompt_function=prompt_function,
             hf_repo=hf_repo,
             hf_subset=hf_subset,
-            metric=metric,
+            metrics=metrics,
             hf_avail_splits=hf_avail_splits,
             evaluation_splits=evaluation_splits,
             few_shots_split=few_shots_split,
             few_shots_select=few_shots_select,
-            suite=suite,
             generation_size=generation_size,
-            trust_dataset=trust_dataset,
             stop_sequence=(stop_sequence if stop_sequence is not None else ["\n"]),
         )
 
@@ -536,8 +572,8 @@ BBH_TASKS = [
 ]
 
 
-# BBH_STRING = {t: f'custom|{t.name}|3|1' for t in BBH_TASKS}
-BBH_STRING = [(t, f"custom|{t.name}|0|1") for t in BBH_TASKS]
+# BBH_STRING = {t: f'custom|{t.name}|3' for t in BBH_TASKS}
+BBH_STRING = [(t, f"custom|{t.name}|0") for t in BBH_TASKS]
 _TASKS_STRINGS.extend(BBH_STRING)
 _TASKS += BBH_TASKS
 
@@ -561,7 +597,7 @@ def agi_eval_prompt(line, task_name: str = None):
     prompt += line["question"] + "\n" + "\n".join(cleaned_options) + "\n"
     prompt += "Answer: "
 
-    choices = LETTER_INDICES[: len(line["options"])]
+    choices = ascii_uppercase[: len(line["options"])]
 
     output = Doc(
         query=prompt,
@@ -570,7 +606,7 @@ def agi_eval_prompt(line, task_name: str = None):
 
     if line["label"]:
         output.choices = choices
-        output.gold_index = LETTER_INDICES.index(line["label"].strip())
+        output.gold_index = ascii_uppercase.index(line["label"].strip())
     else:
         output.choices = [line["answer"]]
         output.gold_index = 0
@@ -587,7 +623,7 @@ def agi_eval_prompt_no_letters(line, task_name: str = None):
     output = Doc(
         query=line["question"],
         choices=cleaned_options,
-        gold_index=LETTER_INDICES.index(line["label"].strip()),
+        gold_index=ascii_uppercase.index(line["label"].strip()),
         instruction="",
     )
 
@@ -601,15 +637,17 @@ class CustomAGIEvalEvaluationTask(LightevalTaskConfig):
         prompt_function=agi_eval_prompt_no_letters,
         hf_repo="lighteval/agi_eval_en",
         hf_subset=None,
-        #  metric=[Metrics.loglikelihood_acc_single_token],
-        metric=[Metrics.loglikelihood_acc, Metrics.loglikelihood_acc_norm_nospace],
+        metrics=[
+            Metrics.loglikelihood_acc,
+            Metrics.loglikelihood_acc(
+                sample_params={"logprob_normalization": LogProbCharNorm(ignore_first_space=True)}
+            ),
+        ],
         hf_avail_splits=["train", "validation"],
         evaluation_splits=["train"],
         few_shots_split="validation",
         few_shots_select=None,
-        suite=None,
         generation_size=-1,
-        trust_dataset=True,
         stop_sequence=None,
     ):
         super().__init__(
@@ -617,14 +655,12 @@ class CustomAGIEvalEvaluationTask(LightevalTaskConfig):
             prompt_function=prompt_function,
             hf_repo=hf_repo,
             hf_subset=hf_subset,
-            metric=metric,
+            metrics=metrics,
             hf_avail_splits=hf_avail_splits,
             evaluation_splits=evaluation_splits,
             few_shots_split=few_shots_split,
             few_shots_select=few_shots_select,
-            suite=suite,
             generation_size=generation_size,
-            trust_dataset=trust_dataset,
             stop_sequence=(stop_sequence if stop_sequence is not None else ["\n"]),
         )
 
@@ -639,7 +675,10 @@ AGIEVAL_TASKS = [
         name="agi_eval:math",
         hf_subset="math",
         prompt_function=agi_eval_math_prompt,
-        metric=[Metrics.exact_match, Metrics.quasi_exact_match],
+        metrics=[
+            Metrics.exact_match,
+            Metrics.exact_match(sample_params={"normalize_gold": helm_normalizer, "normalize_pred": helm_normalizer}),
+        ],
         generation_size=40,
     ),
     CustomAGIEvalEvaluationTask(name="agi_eval:sat-en", hf_subset="sat-en"),
@@ -647,8 +686,8 @@ AGIEVAL_TASKS = [
 ]
 
 
-# AGIEVAL_STRING = {t: f'custom|{t.name}|5|1' for t in AGIEVAL_TASKS}
-AGIEVAL_STRING = [(t, f"custom|{t.name}|0|1") for t in AGIEVAL_TASKS]
+# AGIEVAL_STRING = {t: f'custom|{t.name}|5' for t in AGIEVAL_TASKS}
+AGIEVAL_STRING = [(t, f"custom|{t.name}|0") for t in AGIEVAL_TASKS]
 _TASKS_STRINGS.extend(AGIEVAL_STRING)
 _TASKS += AGIEVAL_TASKS
 
@@ -658,7 +697,7 @@ _TASKS += AGIEVAL_TASKS
 #         name="human_eval",
 #         prompt_function=prompt.human_eval",
 #         hf_repo="lighteval/human_eval",
-#         metric=["human_eval_pass_at_1"],
+#         metrics=["human_eval_pass_at_1"],
 #     ),
 
 

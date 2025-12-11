@@ -34,12 +34,12 @@ from lighteval.metrics.utils.math_comparison import should_treat_as_complex
 from lighteval.tasks.requests import Doc
 from lighteval.tasks.templates.utils.formulation import ChoicePrefix, get_prefix
 from lighteval.tasks.templates.utils.translation_literals import TRANSLATION_LITERALS
-from lighteval.utils.imports import requires_latex2sympy2_extended
+from lighteval.utils.imports import requires
 from lighteval.utils.language import Language
 from lighteval.utils.timeout import timeout
 
 
-@requires_latex2sympy2_extended
+@requires("latex2sympy2_extended")
 def latex_normalization_config_default_factory():
     from latex2sympy2_extended.latex2sympy2 import NormalizationConfig
 
@@ -344,6 +344,37 @@ def lazy_indices_regex(
     return [(re.compile(pattern), priority) for pattern, priority in regexes]
 
 
+def get_extraction_regexes_inspect(
+    target_types: Sequence[ExtractionTarget], language: Language, len_choices: int = 1
+) -> list[tuple[list[tuple[re.Pattern[str], int]], ExtractionTarget]]:
+    """Get extraction regexes for inspect AI.
+    Temporary implementation.
+    TODO: refacto this function to share code with get_extraction_regexes
+    """
+    extraction_regexes: list[tuple[list[tuple[re.Pattern[str], int]], ExtractionTarget]] = [
+        (lazy_latex_regex(target_type, language), target_type)
+        if isinstance(target_type, LatexExtractionConfig)
+        else (lazy_expr_regex(target_type, language), target_type)
+        if isinstance(target_type, ExprExtractionConfig)
+        else (lazy_indices_regex(target_type, len_choices, language), target_type)
+        for target_type in target_types
+    ]
+
+    # Sort the extraction res so that order is indices, latex, expr
+    def get_target_type_order(target_type: ExtractionTarget) -> int:
+        match target_type:
+            case IndicesExtractionConfig():
+                return 0
+            case LatexExtractionConfig():
+                return 1
+            case ExprExtractionConfig():
+                return 2
+
+    extraction_regexes = sorted(extraction_regexes, key=lambda x: get_target_type_order(x[1]))
+
+    return extraction_regexes
+
+
 def get_extraction_regexes(
     formatted_doc: Doc, target_types: Sequence[ExtractionTarget], language: Language
 ) -> list[tuple[list[tuple[re.Pattern[str], int]], ExtractionTarget]]:
@@ -373,7 +404,7 @@ def get_extraction_regexes(
 
 # Small cache, to catche repeated calls invalid parsing
 @lru_cache(maxsize=20)
-@requires_latex2sympy2_extended
+@requires("latex2sympy2_extended")
 def parse_latex_with_timeout(latex: str, timeout_seconds: int):
     from latex2sympy2_extended.latex2sympy2 import latex2sympy
 
@@ -428,7 +459,7 @@ def convert_to_pct(number: Number):
     return sympy.Mul(number, sympy.Rational(1, 100), evaluate=False)
 
 
-@requires_latex2sympy2_extended
+@requires("latex2sympy2_extended")
 @lru_cache(maxsize=20)
 def extract_latex(
     match: re.Match, latex_config: LatexExtractionConfig, timeout_seconds: int

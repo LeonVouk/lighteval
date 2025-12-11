@@ -20,15 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import lighteval.tasks.default_prompts as prompt
 from lighteval.metrics.metrics import Metrics
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
+from lighteval.tasks.tasks.gpqa import gpqa_instruct_prompt
+from lighteval.tasks.tasks.gsm8k import gsm8k_prompt
 
 
 gsm8k_test = LightevalTaskConfig(
-    name="gsm8k",
-    suite=["test"],
-    prompt_function=prompt.gsm8k,
+    name="gsm8k_test",
+    prompt_function=gsm8k_prompt,
     hf_repo="gsm8k",
     hf_subset="main",
     hf_avail_splits=["train", "test"],
@@ -38,14 +38,12 @@ gsm8k_test = LightevalTaskConfig(
     generation_size=512,
     metrics=[Metrics.expr_gold_metric],
     stop_sequence=None,
-    trust_dataset=True,
     version=0,
 )
 
 gpqa_diamond_test = LightevalTaskConfig(
-    name="gpqa:diamond",
-    suite=["test"],
-    prompt_function=prompt.gpqa_instruct,
+    name="gpqa:diamond_test",
+    prompt_function=gpqa_instruct_prompt,
     hf_repo="Idavidrein/gpqa",
     hf_subset="gpqa_diamond",
     hf_avail_splits=["train"],
@@ -53,9 +51,8 @@ gpqa_diamond_test = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=2048,
-    metrics=[Metrics.gpqa_instruct_pass_at_1_1n],
+    metrics=[Metrics.gpqa_instruct_pass_at_k(sample_params={"k": 1})],
     stop_sequence=[],  # no stop sequence, will use eos token
-    trust_dataset=True,
     version=0,
 )
 
