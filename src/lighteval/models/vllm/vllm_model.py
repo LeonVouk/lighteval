@@ -395,8 +395,8 @@ class VLLMModel(LightevalModel):
                 inputs = tokenized["input_ids"]
                 context_size = len(inputs[0])
 
-                # left truncate the inputs to the maximum length
-                if self.max_length is None:
+            # left truncate the inputs to the maximum length
+            if self.max_length is None:
                 logger.warning(
                     "The model max_length was not set in the model arguments, so we cannot check if we need to truncate the context."
                 )
@@ -412,34 +412,34 @@ class VLLMModel(LightevalModel):
                             )
                             raise ValueError("Context size is less than 0.")
                         inputs = [input[-context_size:] for input in inputs]
-                else:
-                    if context_size > self.max_length:
-                        logger.warning(
-                            f"{context_size=} which is greater than {self.max_length=}. Truncating context to {self.max_length} tokens."
-                        )
-                        context_size = self.max_length
-                        inputs = [input[-context_size:] for input in inputs]
-
-                vllm_outputs = self._generate(
-                    inputs=inputs,
-                    max_new_tokens=max_new_tokens,
-                    stop_tokens=stop_tokens,
-                    returns_logits=False,
-                    num_samples=num_samples,
-                )
-
-                for i, vllm_output in enumerate(vllm_outputs):
-                    output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
-                    result = [output.text for output in vllm_output.outputs]
-                    input_token_ids = vllm_output.prompt_token_ids
-
-                    cur_response = ModelResponse(
-                        input=context[i],
-                        text=result,
-                        output_tokens=list(output_token_ids),
-                        input_tokens=input_token_ids,
+            else:
+                if context_size > self.max_length:
+                    logger.warning(
+                        f"{context_size=} which is greater than {self.max_length=}. Truncating context to {self.max_length} tokens."
                     )
-                    results.append(cur_response)
+                    context_size = self.max_length
+                    inputs = [input[-context_size:] for input in inputs]
+
+            vllm_outputs = self._generate(
+                inputs=inputs,
+                max_new_tokens=max_new_tokens,
+                stop_tokens=stop_tokens,
+                returns_logits=False,
+                num_samples=num_samples,
+            )
+
+            for i, vllm_output in enumerate(vllm_outputs):
+                output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
+                result = [output.text for output in vllm_output.outputs]
+                input_token_ids = vllm_output.prompt_token_ids
+
+                cur_response = ModelResponse(
+                    input=context[i],
+                    text=result,
+                    output_tokens=list(output_token_ids),
+                    input_tokens=input_token_ids,
+                )
+                results.append(cur_response)
 
         return dataset.get_original_order(results)
 

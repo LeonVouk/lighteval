@@ -55,20 +55,10 @@ from lighteval.metrics.utils.judge_utils import get_judge_prompt_simpleqa, proce
 from lighteval.metrics.utils.llm_as_judge import JudgeLM
 from lighteval.models.model_output import ModelResponse
 from lighteval.tasks.requests import Doc
-from lighteval.utils.utils import as_list, safe_divide, remove_reasoning_tags
+from lighteval.utils.utils import as_list, safe_divide
 
 
 logger = logging.getLogger(__name__)
-
-
-REASONING_TAG_PAIRS = [
-    ("<think>", "</think>"),
-]
-
-
-REASONING_TAG_PAIRS = [
-    ("<think>", "</think>"),
-]
 
 
 class SampleLevelComputation(ABC):
@@ -158,9 +148,6 @@ class ExactMatches(SampleLevelComputation):
         Returns:
             float: The exact match score. Will be 1 for a match, 0 otherwise.
         """
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
         
         if not pred:
             return 0
@@ -238,9 +225,6 @@ class F1_score(SampleLevelComputation):
         Returns:
             float: The f1 score over the bag of words, computed using nltk.
         """
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
 
         if self.normalize_gold:
             gold = self.normalize_gold(gold)
@@ -589,8 +573,6 @@ class ROUGE(SampleLevelComputation):
     def _rouge_score(self, golds: list[str], preds: list[str]):
         scores = {m: [] for m in self.methods}
         for pred in preds:
-            # TODO maybe add a setting to turn reasoning parsing on/off
-            pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
             for gold in golds:
                 cur_scores = self.scorer.score(gold, pred)
                 for method in self.methods:
@@ -600,8 +582,6 @@ class ROUGE(SampleLevelComputation):
     def _rouge_score_multi_golds(self, golds: list[str], preds: list[str]):
         scores = {m: [] for m in self.methods}
         for pred in preds:
-            # TODO maybe add a setting to turn reasoning parsing on/off
-            pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
             cur_scores = self.scorer.score_multi(golds, pred)
             for method in self.methods:
                 scores[method].append(cur_scores[method].fmeasure)
@@ -611,8 +591,6 @@ class ROUGE(SampleLevelComputation):
         from rouge_score import scoring
 
         aggregator = scoring.BootstrapAggregator()
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
         for g, p in zip(golds, predictions):
             aggregator.add_scores(self.scorer.score(g, p))
         result = aggregator.aggregate()
@@ -662,10 +640,6 @@ class BertScore(SampleLevelComputation):
         """
         golds = doc.get_golds()
         predictions = model_response.final_text
-        
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
-
 
         if self.bert_scorer is None:
             logger.warning("The first metric computation step might be a bit longer as we need to download the model.")
@@ -734,9 +708,6 @@ class Extractiveness(SampleLevelComputation):
         if self.normalize_pred:
             prediction = self.normalize_pred(prediction)
 
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        prediction = remove_reasoning_tags(prediction, REASONING_TAG_PAIRS)
-
         stats = self.stats_metric.evaluate_example(prediction, inp)
         return {
             "summarization_coverage": stats["coverage"],
@@ -791,9 +762,6 @@ class Faithfulness(SampleLevelComputation):
         if self.normalize_pred:
             prediction = self.normalize_pred(prediction)
 
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        prediction = remove_reasoning_tags([prediction], REASONING_TAG_PAIRS)
-
         return self.summac.score_one(inp, prediction)["score"]
 
 
@@ -833,9 +801,6 @@ class BLEURT(SampleLevelComputation):
         golds = doc.get_golds()
         if len(predictions) == 1:
             predictions = predictions * len(golds)
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
 
         scores = self.model(**self.tokenizer(golds, predictions, return_tensors="pt"))[0].squeeze()
         return scores.item()
@@ -879,9 +844,6 @@ class BLEU(SampleLevelComputation):
         Returns:
             float: Score over the current prediction.
         """
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        pred = remove_reasoning_tags(pred, REASONING_TAG_PAIRS)
 
         weights = [1 if ix == self.n_gram else 0 for ix in range(1, 5)]
         return sentence_bleu([word_tokenize(g) for g in gold], word_tokenize(pred), weights=weights)
@@ -934,9 +896,6 @@ class StringDistance(SampleLevelComputation):
                 completion = sequence.strip()
             else:
                 completion = sequence
-            
-            # TODO maybe add a setting to turn reasoning parsing on/off
-            completion = remove_reasoning_tags(completion, REASONING_TAG_PAIRS)
 
             # `reference` is the entire remaining book for each instance.
             # Truncate it here to be of the same length as the completion to ensure edit-distance is meaningful.
@@ -1075,9 +1034,6 @@ class JudgeLLMSimpleQA(JudgeLLM):
         golds = [formatted_doc.get_golds()[0] for formatted_doc in doc]
         predictions = [response.final_text[0] for response in responses]
 
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
-
 
         scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
 
@@ -1109,9 +1065,6 @@ class JudgeLLMMTBench(JudgeLLM):
         questions = doc.specific["multi_turn_queries"]
         golds = doc.specific.get("reference", [None, None])
         predictions = [model_response.final_text[0], model_response.text[1]]
-        
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
 
 
         options = [None for _ in range(len(golds))]
@@ -1138,9 +1091,6 @@ class JudgeLLMMixEval(JudgeLLM):
         options = [doc.choices for doc in doc]
         golds = [doc.get_golds()[0] for doc in doc]
         predictions = [response.final_text[0] for response in responses]
-
-        # TODO maybe add a setting to turn reasoning parsing on/off
-        predictions = [remove_reasoning_tags(pred, REASONING_TAG_PAIRS) for pred in predictions]
 
 
         scores, messages, judgements = self.judge.evaluate_answer_batch(questions, predictions, options, golds)
@@ -1201,8 +1151,6 @@ class SamplingMetric:
             self.compute_score = self.default_sample_scoring
 
     def preprocess(self, text: str) -> str:
-
-        text = remove_reasoning_tags(text, REASONING_TAG_PAIRS)
 
         if not text:
             return ""

@@ -39,14 +39,10 @@ from lighteval.metrics.sample_preparator import (
     LogprobCorpusMetricInput,
     PerplexityCorpusMetricInput,
 )
-from lighteval.utils.utils import as_list, remove_reasoning_tags
+from lighteval.utils.utils import as_list
 
 
 logger = logging.getLogger(__name__)
-
-REASONING_TAG_PAIRS = [
-    ("<think>", "</think>"),
-]
 
 class CorpusLevelComputation(ABC):
     @abstractmethod
@@ -152,7 +148,7 @@ class CorpusLevelTranslationMetric(CorpusLevelComputation):
                 logger.info(
                     f"Multiple predictions present, keeping only the first prediction (when computing sacrebleu.{metric.__name__})."
                 )
-            preds.append(remove_reasoning_tags(pred[0], REASONING_TAG_PAIRS))
+            preds.append(pred[0])
 
         if self.metric_type == "bleu":
             golds = [[gold[0] for gold in golds]]
