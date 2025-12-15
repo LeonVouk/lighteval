@@ -54,6 +54,9 @@ class ModelConfig(BaseModel, extra="forbid"):
         system_prompt (str | None):
             Optional system prompt to be used with chat models. This prompt sets the
             behavior and context for the model during evaluation.
+        thinking_budet (int | None):
+            Optional thinking budget for evaluation of models using thinking. The thinking budget
+            gets added to the maximum number of tokens defined by each task
         cache_dir (str):
             Directory to cache the model. Defaults to "~/.cache/huggingface/lighteval".
 
@@ -86,6 +89,7 @@ class ModelConfig(BaseModel, extra="forbid"):
 
     generation_parameters: GenerationParameters = GenerationParameters()
     system_prompt: str | None = None
+    thinking_budget: int | None = None
     cache_dir: str = "~/.cache/huggingface/lighteval"
 
     @classmethod
