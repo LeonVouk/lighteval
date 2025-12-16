@@ -37,6 +37,18 @@ from lighteval.tasks.tasks.mt_bench.judge_prompt_templates import (
 )
 
 
+TEMP_PER_CATEGORY = {
+    "extraction": 0.0,
+    "math": 0.0,
+    "coding": 0.0,
+    "reasoning": 0.0,
+    "arena-hard-200": 0.0, 
+    "stem": 0.1,
+    "humanities": 0.1,
+    "writing": 0.7,
+    "roleplay": 0.7
+}
+
 def mt_bench_prompt(line, task_name: str = ""):
     return Doc(
         task_name=task_name,
@@ -46,9 +58,13 @@ def mt_bench_prompt(line, task_name: str = ""):
         gold_index=[],
         specific={
             "reference": line["reference"],
-            "category": line["category"],
             "multi_turn_queries": line["turns"],
             "id": line["question_id"],
+            "category": line["category"],
+            "multiturn_config": {
+                "turns": len(line["turns"]),
+                "temperature_per_category": TEMP_PER_CATEGORY
+            }
         },
     )
 
