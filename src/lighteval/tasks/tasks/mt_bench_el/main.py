@@ -29,13 +29,25 @@ from lighteval.metrics.metrics_sample import JudgeLLMMTBench
 from lighteval.metrics.utils.metric_utils import SampleLevelMetricGrouping
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
 from lighteval.tasks.requests import Doc, SamplingMethod
-from lighteval.tasks.tasks.mt_bench.judge_prompt_templates import (
-    flow_judge_prompt_mt_bench_with_ref,
-    flow_judge_prompt_mt_bench_without_ref,
-    original_judge_prompt_mt_bench_with_ref,
-    original_judge_prompt_mt_bench_without_ref
+from lighteval.tasks.tasks.mt_bench_el.judge_prompt_el_templates import (
+    flow_judge_prompt_mt_bench_el_with_ref,
+    flow_judge_prompt_mt_bench_el_without_ref,
+    original_judge_prompt_mt_bench_el_with_ref,
+    original_judge_prompt_mt_bench_el_without_ref
 )
 
+
+TEMP_PER_CATEGORY = {
+    "extraction": 0.0,
+    "math": 0.0,
+    "coding": 0.0,
+    "reasoning": 0.0,
+    "arena-hard-200": 0.0, 
+    "stem": 0.1,
+    "humanities": 0.1,
+    "writing": 0.7,
+    "roleplay": 0.7
+}
 
 def mt_bench_prompt(line, task_name: str = ""):
     return Doc(
@@ -46,9 +58,13 @@ def mt_bench_prompt(line, task_name: str = ""):
         gold_index=[],
         specific={
             "reference": line["reference"],
-            "category": line["category"],
             "multi_turn_queries": line["turns"],
             "id": line["question_id"],
+            "category": line["category"],
+            "multiturn_config": {
+                "turns": len(line["turns"]),
+                "temperature_per_category": TEMP_PER_CATEGORY
+            }
         },
     )
 
@@ -66,41 +82,40 @@ def process_judge_response(x):
     return int(number) if number else 0
 
 
-def flow_judge_mt_bench_prompt(question, answer, options, gold):
+def flow_judge_mt_bench_el_prompt(question, answer, options, gold):
     if gold is not None and len(gold) > 0:
-        return original_judge_prompt_mt_bench_with_ref(question, options, answer, gold)
+        return original_judge_prompt_mt_bench_el_with_ref(question, options, answer, gold)
 
-    return original_judge_prompt_mt_bench_without_ref(question, options, answer, gold)
+    return original_judge_prompt_mt_bench_el_without_ref(question, options, answer, gold)
 
 
-llm_judge_mt_bench = SampleLevelMetricGrouping(
+llm_judge_mt_bench_el = SampleLevelMetricGrouping(
     metric_name=["judge_score_overall"],
     higher_is_better={"judge_score_overall": True},
     category=SamplingMethod.GENERATIVE,
     sample_level_fn=JudgeLLMMTBench(
-        judge_model_name="litellm_proxy/krikri-dpo", # "litellm_proxy/krikri-dpo", "openai/gpt-4o", "litellm_proxy/gpt-4o" "flowaicom/Flow-Judge-v0.1",
-        template=flow_judge_mt_bench_prompt,
+        judge_model_name="litellm_proxy/krikri-dpo", # "gpt-4p" "openai/gpt-4o", "litellm_proxy/krikri-dpo", "flowaicom/Flow-Judge-v0.1",
+        template=flow_judge_mt_bench_el_prompt,
         process_judge_response=process_judge_response,
-        judge_backend="litellm", # "transformers",
+        judge_backend="litellm", # "openai" "transformers",
     ),
     corpus_level_fn={
         "judge_score_overall": np.mean,
     },
 )
 
-task = LightevalTaskConfig(
-    name="mt_bench",
-    prompt_function=mt_bench_prompt,  # must be defined in the file or imported from src/lighteval/tasks/tasks_prompt_formatting.py
-    hf_repo="lighteval/mt-bench",
+mt_bench_el_task = LightevalTaskConfig(
+    name="mt_bench_el",
+    prompt_function=mt_bench_prompt, # must be defined in the file or imported from src/lighteval/tasks/tasks_prompt_formatting.py
+    hf_repo="ilsp/mt-bench-greek",
     hf_subset="default",
     hf_avail_splits=["train"],
     evaluation_splits=["train"],
     few_shots_split="",
     few_shots_select="random",
-    metrics=[llm_judge_mt_bench],
+    metrics=[llm_judge_mt_bench_el],
     generation_size=1024,
     stop_sequence=[],
 )
 
-
-TASKS_TABLE = [task]
+TASKS_TABLE = [mt_bench_el_task]

@@ -334,7 +334,6 @@ class JudgeLM:
                     }
                     if max_new_tokens is not None:
                         kwargs["max_tokens"] = (max_new_tokens,)
-
                     response = litellm.completion(**kwargs)
                     text = response.choices[0].message.content
                     if not text or text == error_message:

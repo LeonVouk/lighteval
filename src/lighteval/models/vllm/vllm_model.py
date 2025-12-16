@@ -26,6 +26,7 @@ import itertools
 import logging
 import os
 from typing import Coroutine, Optional
+from collections import defaultdict
 
 import torch
 from pydantic import NonNegativeFloat, NonNegativeInt, PositiveInt
@@ -346,40 +347,22 @@ class VLLMModel(LightevalModel):
             max_new_tokens = self.config.generation_parameters.max_new_tokens or split[0].generation_size
             num_samples = split[0].num_samples
 
-            # TODO should probably make a specific category or something for any multiturn task. We shall see
-            is_mt_bench = "mt_bench" in split[0].task_name
-    
-            if is_mt_bench:
+            multiturn_config = split[0].specific.get("multiturn_config", {}) if split[0].specific else None
 
-                # TODO parametrize this and make sure it works for 1) All n, 2) Different n within the same dataset
-                N_TURNS = 2
+            if multiturn_config:
 
-                MT_BENCH_CATEGORY_0_7_TEMP = {
-                    "writing": 0.7,
-                    "roleplay": 0.7
-                }
-                MT_BENCH_CATEGORY_0_1_TEMP = {
-                    "stem": 0.1,
-                    "humanities": 0.1,
-                }
-                MT_BENCH_CATEGORY_0_0_TEMP = {
-                    "extraction": 0.0,
-                    "math": 0.0,
-                    "coding": 0.0,
-                    "reasoning": 0.0,
-                    "arena-hard-200": 0.0,
-                }
+                # FIXME change this from dataset specific to sample specific
+                n_turns = multiturn_config.get("turns", 2)
 
                 original_ds_order = [request for request in split]
                 local_results = [None] * len(original_ds_order)
-                groups = [
-                    ([(n, request) for n, request in enumerate(original_ds_order) if request.specific['category'] in MT_BENCH_CATEGORY_0_7_TEMP], 0.7),
-                    ([(n, request) for n, request in enumerate(original_ds_order) if request.specific['category'] in MT_BENCH_CATEGORY_0_1_TEMP], 0.1),
-                    ([(n, request) for n, request in enumerate(original_ds_order) if request.specific['category'] in MT_BENCH_CATEGORY_0_0_TEMP], 0.0)
-                ]
-                
-                for group, temp in groups:
-                    self.greedy_until_multiturn(local_results, group, temp, max_new_tokens, num_samples, stop_tokens, N_TURNS)
+                groups = defaultdict(list)
+                for n, request in enumerate(original_ds_order):
+                    temp = self._get_temp(request, multiturn_config)
+                    groups[temp].append((n, request))
+
+                for temp, group in groups.items():
+                    self.greedy_until_multiturn(local_results, group, temp, max_new_tokens, num_samples, stop_tokens, n_turns)
                
                 results.extend(local_results)
 
@@ -443,129 +426,11 @@ class VLLMModel(LightevalModel):
 
         return dataset.get_original_order(results)
 
-    # TODO remove in later version, keep atm for sanity purposes
-    def greedy_until_multiturn_deprecated(self, local_results, group, temp, max_new_tokens, num_samples, stop_tokens):
-        order = [t[0] for t in group]
-        # TODO can make this work for n turn
-        context_first_turn = [self.prompt_manager.prepare_prompt_multiturn(t[1], 0) for t in group]
-        context_second_turn = [self.prompt_manager.prepare_prompt_multiturn(t[1], 1) for t in group]
-        tokenized = self.tokenizer(context_first_turn, add_special_tokens=self.add_special_tokens)
-        # The main question for this step is the following:
-        # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
-        # of losing some meaning, or have some generations that are exceedingly short?
-        # The choice we go for here is to avoid truncating the prompt if we can, since it
-        # should have been managed by the prompt creator/few shot manager if requested by the user.
-        inputs = tokenized["input_ids"]
-        context_size = len(inputs[0])
-
-        # left truncate the inputs to the maximum length
-        if max_new_tokens is not None:
-            if context_size + max_new_tokens > self.max_length:
-                logger.warning(
-                    f"{context_size + max_new_tokens=} which is greater than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
-                )
-                context_size = self.max_length - max_new_tokens
-                if context_size < 0:
-                    logger.critical(
-                        f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
-                    )
-                    raise ValueError("Context size is less than 0.")
-                inputs = [input[-context_size:] for input in inputs]
-        else:
-            if context_size > self.max_length:
-                logger.warning(
-                    f"{context_size=} which is greater than {self.max_length=}. Truncating context to {self.max_length} tokens."
-                )
-                context_size = self.max_length
-                inputs = [input[-context_size:] for input in inputs]
-        
-        vllm_outputs = self._generate_multiturn(
-            inputs=inputs,
-            temp=temp,
-            max_new_tokens=max_new_tokens,
-            stop_tokens=stop_tokens,
-            returns_logits=False,
-            num_samples=num_samples,
-        )
-
-        model_generations = []
-        first_round_results = []
-        input_tokens = []
-        for i, vllm_output in enumerate(vllm_outputs):
-            output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
-            model_generations.append(output_token_ids)
-            result = [output.text for output in vllm_output.outputs]
-            if stop_tokens:
-                for term in stop_tokens:
-                    result = [r.split(term)[0] for r in result]
-            first_round_results.append(result[0])
-            input_token_ids = vllm_output.prompt_token_ids
-            input_tokens.append(input_token_ids)
-
-        context_second_turn = [c.format(model_response_0=d_g) for c, d_g in zip(context_second_turn, first_round_results)]
-        tokenized = self.tokenizer(context_second_turn, add_special_tokens=self.add_special_tokens)
-        # The main question for this step is the following:
-        # Would we rather truncate the prompt to allow generation to go to max_new_tokens, at the risk
-        # of losing some meaning, or have some generations that are exceedingly short?
-        # The choice we go for here is to avoid truncating the prompt if we can, since it
-        # should have been managed by the prompt creator/few shot manager if requested by the user.
-        inputs = tokenized["input_ids"]
-        context_size = len(inputs[0])
-
-        # left truncate the inputs to the maximum length
-        if max_new_tokens is not None:
-            if context_size + max_new_tokens > self.max_length:
-                logger.warning(
-                    f"{context_size + max_new_tokens=} which is greater than {self.max_length=}. Truncating context to {self.max_length - max_new_tokens} tokens."
-                )
-                context_size = self.max_length - max_new_tokens
-                if context_size < 0:
-                    logger.critical(
-                        f"{context_size=} is less than 0, either reduce the max_new_tokens or increase model max length."
-                    )
-                    raise ValueError("Context size is less than 0.")
-                inputs = [input[-context_size:] for input in inputs]
-        else:
-            if context_size > self.max_length:
-                logger.warning(
-                    f"{context_size=} which is greater than {self.max_length=}. Truncating context to {self.max_length} tokens."
-                )
-                context_size = self.max_length
-                inputs = [input[-context_size:] for input in inputs]
-
-        vllm_outputs = self._generate_multiturn(
-            inputs=inputs,
-            temp=temp,
-            max_new_tokens=max_new_tokens,
-            stop_tokens=stop_tokens,
-            returns_logits=False,
-            num_samples=num_samples,
-        )
-
-        model_generations_2nd = []
-        second_round_results = []
-        input_tokens_2nd = []
-        for i, vllm_output in enumerate(vllm_outputs):
-            output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
-            model_generations_2nd.append(output_token_ids)
-            result = [output.text for output in vllm_output.outputs]
-            if stop_tokens:
-                for term in stop_tokens:
-                    result = [r.split(term)[0] for r in result]
-            second_round_results.append(result[0])
-            input_token_ids = vllm_output.prompt_token_ids
-            input_tokens_2nd.append(input_token_ids)
-
-        # This has to change, just matching the rest of the lighteval GenerativeMultiturnResponse implementations for now
-        for answers in zip(order, context_first_turn, input_tokens, first_round_results, model_generations, context_second_turn, input_tokens_2nd, second_round_results, model_generations_2nd):
-            local_results[answers[0]] = ModelResponse(
-                input=[answers[1], answers[5]],
-                text=[answers[3], answers[7]],
-                output_tokens=[answers[4], answers[8]],
-                input_tokens=[answers[2], answers[6]],
-            )
-
-
+    def _get_temp(self, request, multiturn_config):
+        category = request.specific.get("category")
+        temp_lookup = multiturn_config.get("temperature_per_category", {})
+        return temp_lookup.get(category, self.config.generation_parameters.temperature)
+    
     def greedy_until_multiturn(self, local_results, group, temp, max_new_tokens, num_samples, stop_tokens, n_turns):
         order = [t[0] for t in group]
         
@@ -643,10 +508,10 @@ class VLLMModel(LightevalModel):
         # This has to change, just matching the rest of the lighteval ModelResponse implementations for now
         for answers in zip(
             order, 
-            zip(*[i for i in all_contexts]), 
-            zip(*[i for i in all_rounds_results]),
-            zip(*[i for i in all_rounds_model_generations]),
-            zip(*[i for i in all_rounds_input_tokens]),
+            zip(*all_contexts), 
+            zip(*all_rounds_results),
+            zip(*all_rounds_model_generations),
+            zip(*all_rounds_input_tokens),
             ):
             
             idx = answers[0]

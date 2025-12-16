@@ -337,7 +337,8 @@ class MetricsLogger:
         for task_name, metrics in self.metrics_values.items():
             task = task_dict[task_name]
 
-            skip_metric = []
+            # FIXME fix this, probably add a blanket if not aggregation -> continue
+            skip_metric = ["user_prompt", "judgement"]
             for metric_name, metric_values in metrics.items():
                 if metric_name in skip_metric:
                     # The metric is in a subset which has already been computed and saved
