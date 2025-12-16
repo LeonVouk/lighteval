@@ -3,17 +3,6 @@ from lighteval.tasks.lighteval_task import LightevalTaskConfig
 from lighteval.tasks.requests import Doc
 
 
-LANG_NAMES = {
-    "en": "Αγγλικά",
-    "fr": "Γαλλικά",
-    "pt": "Πορτογαλικά",
-    "de": "Γερμανικά",
-    "es": "Ισπανικά",
-    "it": "Ιταλικά",
-    "el": "Ελληνικά"
-}
-
-
 GREEK_LETTER_INDICES = [
     "Α",
     "Β",
