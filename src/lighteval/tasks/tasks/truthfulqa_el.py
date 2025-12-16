@@ -74,7 +74,10 @@ truthfulqa_el_gen = LightevalTaskConfig(
     few_shots_split=None,
     few_shots_select=None,
     generation_size=200,
-    metrics=[Metrics.exact_match],
+    metrics=[
+        Metrics.bleu,
+        # FIXME EM in truthfulqa_gen? Metrics.exact_match
+    ],
     stop_sequence=["\n"],
     version=0,
 )

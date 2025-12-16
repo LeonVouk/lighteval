@@ -1,8 +1,6 @@
 import numpy as np
 
-from lighteval.metrics.dynamic_metrics import (
-    LogLikelihoodAccMetric,
-)
+from lighteval.metrics.dynamic_metrics import LogLikelihoodAccMetric
 from lighteval.metrics.normalizations import LogProbTokenNorm
 from lighteval.metrics.metrics import Metrics
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
@@ -29,7 +27,10 @@ medical_mc_qa_el_task = LightevalTaskConfig(
     few_shots_split="validation",
     few_shots_select="sequential",
     generation_size=1,
-    metrics=[Metrics.loglikelihood_acc, LogLikelihoodAccMetric(normalization=LogProbTokenNorm())],
+    metrics=[
+        Metrics.loglikelihood_acc, 
+        LogLikelihoodAccMetric(normalization=LogProbTokenNorm())
+    ],
     stop_sequence=["\n"],
     version=0,
 )

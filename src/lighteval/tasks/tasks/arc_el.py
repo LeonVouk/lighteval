@@ -2,6 +2,8 @@ from inspect_ai.dataset import Sample
 from inspect_ai.scorer import choice
 from inspect_ai.solver import multiple_choice
 
+from lighteval.metrics.dynamic_metrics import LogLikelihoodAccMetric
+from lighteval.metrics.normalizations import LogProbTokenNorm
 from lighteval.metrics.metrics import Metrics
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
 from lighteval.tasks.requests import Doc
@@ -46,6 +48,8 @@ class ARCELTask(LightevalTaskConfig):
             generation_size=1,
             metrics=[
                 Metrics.loglikelihood_acc,
+                # FIXME tentative
+                LogLikelihoodAccMetric(normalization=LogProbTokenNorm())
             ],
             stop_sequence=["\n"],
             version=0,
