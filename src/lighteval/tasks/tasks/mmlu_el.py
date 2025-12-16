@@ -141,7 +141,7 @@ class MMLUELTask(LightevalTaskConfig):
             generation_size=1,
             metrics=[
                 Metrics.loglikelihood_acc,
-                # TODO add after fixing the result merging 
+                # FIXME add after fixing the result merging
                 # Metrics.pass_at_k_letters(sample_params={"k": 1}),
             ],
             stop_sequence=["\n"],
