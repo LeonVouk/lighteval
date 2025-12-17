@@ -28,7 +28,7 @@ medical_mc_qa_el_task = LightevalTaskConfig(
     few_shots_select="sequential",
     generation_size=1,
     metrics=[
-        Metrics.loglikelihood_acc, 
+        Metrics.loglikelihood_acc,
         LogLikelihoodAccMetric(normalization=LogProbTokenNorm())
     ],
     stop_sequence=["\n"],
