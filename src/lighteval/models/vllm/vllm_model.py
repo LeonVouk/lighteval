@@ -193,7 +193,7 @@ class VLLMModel(LightevalModel):
         self.config = config
         self.use_chat_template = uses_chat_template(
             model_name=config.model_name, override_chat_template=config.override_chat_template
-        )
+        ) and config.use_chat_template
         self.data_parallel_size = config.data_parallel_size
         self.tensor_parallel_size = config.tensor_parallel_size
         self._add_special_tokens = config.add_special_tokens if config.add_special_tokens is not None else False

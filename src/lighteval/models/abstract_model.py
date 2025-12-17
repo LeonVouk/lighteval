@@ -57,6 +57,9 @@ class ModelConfig(BaseModel, extra="forbid"):
         thinking_budet (int | None):
             Optional thinking budget for evaluation of models using thinking. The thinking budget
             gets added to the maximum number of tokens defined by each task
+        use_chat_template (bool | None):
+            Optional config of using chat template. Some tokenizers may be unified between base/instruct
+            and current implementation would use a chat template for the base model should that be the case.
         cache_dir (str):
             Directory to cache the model. Defaults to "~/.cache/huggingface/lighteval".
 
@@ -90,6 +93,7 @@ class ModelConfig(BaseModel, extra="forbid"):
     generation_parameters: GenerationParameters = GenerationParameters()
     system_prompt: str | None = None
     thinking_budget: int | None = None
+    use_chat_template: bool | None = None
     cache_dir: str = "~/.cache/huggingface/lighteval"
 
     @classmethod
